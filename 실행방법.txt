@@ -1,0 +1,7 @@
+cd "C:\Users\tmdal\Desktop\교육용\issue-tool"
+.\.venv\Scripts\Activate.ps1
+py app.py
+
+http://127.0.0.1:5000/
+
+해당 폴더에 들어가, 마우스 우클릭, 터미널 열고 py app.py 명령어 입력

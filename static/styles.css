@@ -1,0 +1,180 @@
+/* 기본 레이아웃 */
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  background: #0b1020;
+  color: #f3f4f6;
+}
+
+.page {
+  max-width: 960px;
+  margin: 24px auto 48px;
+  padding: 0 16px;
+}
+
+/* 헤더 */
+.header {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+
+.header p {
+  margin: 0;
+  color: #9ca3af;
+}
+
+/* 카드 공통 */
+.card {
+  background: #111827;
+  border-radius: 12px;
+  padding: 20px 18px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  margin-bottom: 16px;
+  border: 1px solid #1f2937;
+}
+
+.card h2, .card h3 {
+  margin-top: 0;
+}
+
+/* 폼 */
+.issue-form .form-row {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.issue-form label {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.issue-form select,
+.issue-form textarea {
+  border-radius: 8px;
+  border: 1px solid #374151;
+  padding: 8px 10px;
+  background: #020617;
+  color: #e5e7eb;
+  font-size: 14px;
+}
+
+.issue-form textarea {
+  resize: vertical;
+}
+
+.issue-form .buttons {
+  align-items: flex-end;
+}
+
+.issue-form button {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.issue-form button:hover {
+  opacity: 0.9;
+}
+
+/* 결과 영역 */
+.results .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.results .card.full-width {
+  grid-column: 1 / -1;
+}
+
+.result-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.result-list li {
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+/* 최종 배지 */
+.final-label {
+  margin: 8px 0 4px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.badge-issue {
+  background: rgba(239, 68, 68, 0.14);
+  color: #fecaca;
+  border: 1px solid #ef4444;
+}
+
+.badge-non {
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+  border: 1px solid #22c55e;
+}
+
+/* 원문 텍스트 */
+.raw-text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: "Consolas", "Pretendard", monospace;
+  font-size: 13px;
+  background: #020617;
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid #1f2937;
+}
+
+/* 푸터 */
+.footer {
+  margin-top: 16px;
+  text-align: right;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* 작은 화면 대응 */
+@media (max-width: 600px) {
+  .page {
+    margin-top: 16px;
+  }
+}
+
+/* ===== 요약 박스 (교육용 설명) ===== */
+.summary-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #101520;
+  border: 1px solid #2f3a55;
+}
+
+/* 요약 문구가 카드 밖으로 튀어나오지 않도록 줄바꿈 처리 */
+.summary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;   /* 줄바꿈 문자 유지 + 자동 줄바꿈 허용 */
+  word-break: break-word;  /* 긴 단어도 카드 안에서 강제 줄바꿈 */
+}

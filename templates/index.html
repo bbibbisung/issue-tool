@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>이슈 분류 툴 (FM / NK)</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<div class="page">
+  <header class="header">
+    <h1>이슈 분류 툴</h1>
+    <p>FM(신월동행), NK(니케) 모니터링용 이슈 자동 분류 도구</p>
+  </header>
+
+  <!-- 1. 이슈 입력 -->
+  <section class="card">
+    <h2>1. 이슈 입력</h2>
+    <form method="post" class="issue-form">
+      <input type="hidden" name="mode" value="classify">
+      <div class="form-row">
+        <label for="game">게임 선택</label>
+        <select id="game" name="game">
+          <option value="FM" {% if game == 'FM' %}selected{% endif %}>FM (신월동행)</option>
+          <option value="NK" {% if game == 'NK' %}selected{% endif %}>NK (니케)</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label for="content">제목/내용</label>
+        <textarea id="content" name="content" rows="6"
+                  placeholder="문의 제목/내용을 그대로 붙여 넣으세요.">{{ content or '' }}</textarea>
+      </div>
+
+      <div class="form-row buttons">
+        <button type="submit">분류 실행</button>
+      </div>
+    </form>
+  </section>
+
+  {% if final_label %}
+  <!-- 2. 최종 판단 결과 영역 -->
+  <section class="results">
+    <div class="card">
+      <h2>2. 최종 판단</h2>
+      <div class="final-label">
+        {% if final_label == 'issue' %}
+          <span class="badge badge-issue">ISSUE</span>
+        {% else %}
+          <span class="badge badge-non">NON ISSUE</span>
+        {% endif %}
+      </div>
+      <p class="final-desc">
+        RULES와 머신러닝 결과를 종합한 최종 판단입니다.
+      </p>
+    </div>
+
+    <div class="grid">
+      <!-- RULES 기반 결과 -->
+      <div class="card">
+        <h3>RULES 기반 결과</h3>
+        <ul class="result-list">
+          <li><strong>라벨:</strong> {{ rule_result.label }}</li>
+          <li><strong>카테고리:</strong> {{ rule_result.category }}</li>
+          <li><strong>감지된 캐릭터:</strong>
+            {% if rule_result.characters %}
+              {{ rule_result.characters | join(', ') }}
+            {% else %}
+              없음
+            {% endif %}
+          </li>
+          <li><strong>매칭 키워드:</strong>
+            {% if rule_result.matched_keywords %}
+              {{ rule_result.matched_keywords | join(', ') }}
+            {% else %}
+              없음
+            {% endif %}
+          </li>
+        </ul>
+
+        {% if summary_text %}
+        <div class="summary-box">
+          <h4>요약 (교육용)</h4>
+          <pre class="summary-text">{{ summary_text }}</pre>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- 머신러닝 결과 -->
+      <div class="card">
+        <h3>머신러닝(ML) 결과</h3>
+        <ul class="result-list">
+          <li><strong>라벨:</strong> {{ ml_result.label }}</li>
+          <li><strong>issue 확률:</strong> {{ (ml_result.prob_issue * 100) | round(1) }} %</li>
+          <li><strong>non_issue 확률:</strong> {{ (ml_result.prob_non_issue * 100) | round(1) }} %</li>
+        </ul>
+      </div>
+
+      <!-- 입력한 원문 -->
+      <div class="card full-width">
+        <h3>입력한 원문</h3>
+        <pre class="raw-text">{{ content }}</pre>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- 3. Training Mode: 헷갈리는 예제 / 퀴즈 -->
+  <section class="card">
+    <h2>3. Training Mode (교육용)</h2>
+    <p class="section-desc">
+      내부 교육용으로 헷갈리기 쉬운 문장을 연습하거나 퀴즈 형태로 풀어볼 수 있는 모드입니다.
+      이 모드는 실제 고객 응대가 아니라, 이슈 우선순위와 프로세스 분류 감각을 기르기 위한 용도입니다.
+    </p>
+
+    <!-- 헷갈리는 예제 불러오기 -->
+    <form method="post" class="training-form">
+      <input type="hidden" name="mode" value="example">
+      <div class="form-row buttons">
+        <button type="submit">헷갈리는 예제 1개 불러오기</button>
+      </div>
+    </form>
+
+    {% if training_example %}
+    <div class="training-block">
+      <div class="card">
+        <h3>예제 문장</h3>
+        <p><strong>게임:</strong> {{ training_example.game }}</p>
+        <pre class="raw-text">{{ training_example.text }}</pre>
+      </div>
+
+      <!-- 퀴즈: 이슈 프로세스 선택 -->
+      <div class="card">
+        <h3>퀴즈: 이 문장의 이슈 프로세스는?</h3>
+        <form method="post" class="quiz-form">
+          <input type="hidden" name="mode" value="quiz">
+          <input type="hidden" name="example_id" value="{{ training_example.id }}">
+          <div class="form-row">
+            <label for="answer_category">툴 기준 카테고리를 골라 보세요.</label>
+            <select id="answer_category" name="answer_category">
+              {% for opt in quiz_options %}
+                <option value="{{ opt }}">{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-row buttons">
+            <button type="submit">정답 확인</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 툴 기준 정답 및 해설 -->
+      {% if training_result %}
+      <div class="card">
+        <h3>툴 기준 정답</h3>
+        <ul class="result-list">
+          <li><strong>라벨:</strong> {{ training_result.label }}</li>
+          <li><strong>카테고리:</strong> {{ training_result.category }}</li>
+          <li><strong>매칭 키워드:</strong>
+            {% if training_result.matched_keywords %}
+              {{ training_result.matched_keywords | join(', ') }}
+            {% else %}
+              없음
+            {% endif %}
+          </li>
+        </ul>
+        {% if training_explanation %}
+        <p class="training-explain">
+          {{ training_explanation }}
+        </p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      <!-- 정답/오답 피드백 -->
+      {% if quiz_feedback %}
+      <div class="quiz-feedback">
+        {{ quiz_feedback }}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+
+  <footer class="footer">
+    <p>내부 교육용 · 로컬 환경에서만 사용</p>
+  </footer>
+</div>
+</body>
+</html>
