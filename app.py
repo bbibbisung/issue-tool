@@ -134,10 +134,12 @@ def save_feedback(
                 ]
             )
 
+        # ✅ text_hash를 포함해서 헤더 순서와 1:1로 맞추어 저장
         writer.writerow(
             [
                 datetime.now().isoformat(timespec="seconds"),
                 game,
+                text_hash,
                 text.replace("\n", " ").strip(),
                 correct_label,
                 correct_category,
