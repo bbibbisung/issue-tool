@@ -5,30 +5,33 @@ app.py
 Flask 기반 웹 서버.
 - "/" 페이지에서 게임 / 텍스트 입력
 - RULES + 머신러닝 결과 동시에 표시
-- 교육용 예시 기반 프로세스 설명도 함께 표시
+- 교육용 요약만 제공
 - 로그 파일로 저장
-- Training Mode(헷갈리는 예제 / 퀴즈) 제공
+- (5순위 패치) 나딘 피드백 기록 & 다음번 자동 반영
+
+※ Training Mode, 프로세스 설명 기능은 모두 제거한 버전입니다.
 """
 
 import os
 import csv
-import random
+import hashlib
 from datetime import datetime
+from typing import Optional, Dict, Any
 
 from flask import Flask, render_template, request
 
-from ml_utils import predict_issue, suggest_process_description
+from ml_utils import predict_issue
 from rules import (
     rules_classify,
-    PROCESS_RULES,
     normalize_text,
     find_keyword_hits,
-    make_process_category_name,
+    detect_character_game_mismatch,   # (4순위 패치) 게임-캐릭터 뒤틀림 감지용
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 LOG_PATH = os.path.join(LOG_DIR, "prediction_log.csv")
+FEEDBACK_LOG_PATH = os.path.join(LOG_DIR, "feedback_log.csv")
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -36,79 +39,12 @@ app = Flask(__name__)
 
 
 # ---------------------------------------------------
-# 0) 교육용 헷갈리는 예제 데이터
+# 1) 욕설/감정 표현 간단 검출
 # ---------------------------------------------------
 
-CONFUSING_EXAMPLES = [
-    {
-        "id": 1,
-        "game": "FM",
-        "text": "씨 발 게임 접속이 안 돼서 하나도 못 하겠습니다.",
-        "note": "욕설 + 접속 불가가 함께 있는 전형적인 사례. 접속/로그인 불가가 핵심 이슈.",
-    },
-    {
-        "id": 2,
-        "game": "FM",
-        "text": "보상도 안 주고 씨발 버그도 안 고치냐.",
-        "note": "보상 불만 + 버그 제보 + 욕설이 함께 있는 사례. 버그/오류 제보가 우선.",
-    },
-    {
-        "id": 3,
-        "game": "FM",
-        "text": "이벤트 보상 구성이 너무 쓰레기네요. 욕은 안 하겠지만 이건 선 넘었습니다.",
-        "note": "감정 표현은 있지만 핵심은 이벤트 보상 구성에 대한 불만.",
-    },
-    {
-        "id": 4,
-        "game": "NK",
-        "text": "접속은 되는데 전투 들어가면 계속 튕기고 버그 걸려요. 진짜 욕 나올 지경.",
-        "note": "전투 중 튕김/버그가 핵심. 접속 자체보다는 버그/오류 제보로 분류되는지 확인하는 사례.",
-    },
-    {
-        "id": 5,
-        "game": "NK",
-        "text": "정치 얘기 하면서 특정 국가 비하까지 하고 있네요. 이런 글 좀 제재해 주세요.",
-        "note": "정치/외교 갈등 + 비하 표현. 커뮤니티 내 S급 위험 요소 사례.",
-    },
-    {
-        "id": 6,
-        "game": "FM",
-        "text": "그냥 접속이 조금 느린 것 같아요. 버그인지는 잘 모르겠습니다.",
-        "note": "모호한 표현. 접속/네트워크 vs 버그/오류 경계에 있는 사례.",
-    },
-    {
-        "id": 7,
-        "game": "NK",
-        "text": "결제는 됐는데 보상이 안 들어왔습니다. 욕 나오네요.",
-        "note": "결제/보상 이슈 + 욕설. 결제/보상 관련 불만이 핵심 이슈.",
-    },
-    {
-        "id": 8,
-        "game": "FM",
-        "text": "캐릭터가 안 움직이고 스킬도 안 나가요. 게임이 이게 뭐냐 진짜.",
-        "note": "전형적인 전투 버그/오류 사례. 감정 표현보다 버그가 핵심.",
-    },
-]
-
-
-def build_quiz_options_for_game(game: str) -> list[str]:
-    """
-    퀴즈용 드롭다운 옵션을 해당 게임(FM/NK)에 맞게 생성.
-    RULES에서 쓰는 카테고리 문자열과 100% 동일하게 맞춘다.
-    """
-    options = {
-        make_process_category_name(
-            r["game"], r["process_name"], r["importance"], r["detail_name"]
-        )
-        for r in PROCESS_RULES
-        if r["game"] == game
-    }
-    return sorted(options)
-
-
 ABUSE_KEYWORDS = [
-    "욕", "욕설", "비속어", "씨발", "ㅅㅂ", "개새", "패드립",
-    "비하", "모욕", "인신공격", "막말",
+    "욕", "욕설", "비속어", "씨발", "ㅅㅂ", "개새", "개같", "개같네", "개같은",
+    "패드립", "비하", "모욕", "인신공격", "막말", "쓰레기", "X같", "병신", "ㅄ",
 ]
 
 
@@ -121,50 +57,228 @@ def detect_abuse_hits(text: str):
 
 
 # ---------------------------------------------------
-# 1) RULES + ML 종합 라벨 결정
+# 2) FEEDBACK 관련 유틸 (5순위 패치)
 # ---------------------------------------------------
 
-def decide_final_label(rule_result: dict, ml_result: dict) -> str:
+def get_text_hash(text: str) -> str:
+    """
+    텍스트(정규화 버전)에 대한 해시 값 생성.
+    - 같은 텍스트는 항상 동일한 text_hash를 사용하게 하기 위함.
+    """
+    normalized = normalize_text(text or "")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def load_feedback_for_hash(text_hash: str) -> Optional[Dict[str, str]]:
+    """
+    feedback_log.csv에서 같은 text_hash를 가진 마지막 피드백을 찾아 반환.
+    - 동일 텍스트에 대해 여러 번 피드백이 쌓일 수 있으므로, 가장 마지막 것을 사용.
+    반환 예:
+    {
+        "correct_label": "issue" / "non_issue" / "",
+        "correct_category": "...",
+        "comment": "..."
+    }
+    """
+    if not text_hash:
+        return None
+
+    if not os.path.exists(FEEDBACK_LOG_PATH):
+        return None
+
+    last_row: Optional[Dict[str, str]] = None
+
+    with open(FEEDBACK_LOG_PATH, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row.get("text_hash") == text_hash:
+                last_row = row
+
+    if not last_row:
+        return None
+
+    return {
+        "correct_label": (last_row.get("correct_label") or "").strip(),
+        "correct_category": (last_row.get("correct_category") or "").strip(),
+        "comment": (last_row.get("comment") or "").strip(),
+    }
+
+
+def save_feedback(
+    game: str,
+    text: str,
+    text_hash: str,
+    correct_label: str,
+    correct_category: str,
+    comment: str,
+) -> None:
+    """
+    feedback_log.csv에 피드백 한 줄 추가.
+    컬럼:
+    - timestamp, game, text_hash, text, correct_label, correct_category, comment
+    """
+    is_new_file = not os.path.exists(FEEDBACK_LOG_PATH)
+
+    with open(FEEDBACK_LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        if is_new_file:
+            writer.writerow(
+                [
+                    "timestamp",
+                    "game",
+                    "text_hash",
+                    "text",
+                    "correct_label",
+                    "correct_category",
+                    "comment",
+                ]
+            )
+
+        writer.writerow(
+            [
+                datetime.now().isoformat(timespec="seconds"),
+                game,
+                text_hash,
+                text.replace("\n", " ").strip(),
+                correct_label,
+                correct_category,
+                comment,
+            ]
+        )
+
+
+# ---------------------------------------------------
+# 3) RULES + ML 종합 라벨 결정 (맥락 플래그 반영)
+#    + 진단 정보 계산용 보조 함수
+# ---------------------------------------------------
+
+def decide_final_label(rule_result: Dict, ml_result: Optional[Dict]) -> str:
     """
     RULES 결과와 ML 결과를 종합해서 최종 라벨을 결정.
 
-    교육용 정책:
-    - RULES가 non_issue + 카테고리 '기타' 이면 무조건 non_issue
-    - RULES가 issue이면 RULES를 최우선으로 신뢰
-    - RULES가 non_issue 인데 ML이 issue라고 해도,
-      → ML 확률이 0.9 이상일 때만 예외적으로 issue로 인정
+    정책 우선순위(보수적으로 issue 쪽을 우선하는 방향):
+    1) ML 문맥 플래그가 '기간 종료 정상 상황'이면 → 무조건 non_issue
+    2) RULES가 non_issue + 카테고리 '기타' 이면 기본적으로 non_issue
+    3) RULES와 ML 라벨이 같으면 그대로
+    4) RULES가 issue이면 RULES를 최우선으로 신뢰
+    5) RULES가 non_issue, ML이 issue인 경우
+       - ML issue 확률이 0.8 이상일 때만 예외적으로 issue 인정
+         (기존 0.9 → 0.8로 완화하여 '이슈인데 non_issue로 빠지는' 케이스 줄임)
+    6) 나머지는 non_issue
     """
+    rule_label = rule_result.get("label", "non_issue")
+    rule_category = rule_result.get("category", "")
+    ml_label = (ml_result or {}).get("label", "non_issue")
+    issue_prob = (ml_result or {}).get("prob_issue", 0.0)
+
+    context_flags = (ml_result or {}).get("context_flags", {})
+
+    # 0) ML 문맥 플래그에서 '기간 종료 정상 상황'을 강하게 non_issue 로 처리
+    if context_flags.get("time_expired_non_issue", False):
+        return "non_issue"
+
+    # 1) RULES가 non_issue + 기타면 기본적으로 non_issue
+    if rule_label == "non_issue" and rule_category == "기타":
+        # 다만, ML이 issue 쪽으로 매우 강하게 치우친 경우는 아래 로직에서 다시 한 번 검토
+        pass
+    else:
+        # 2) RULES와 ML이 같으면 그대로
+        if rule_label == ml_label:
+            return rule_label
+
+        # 3) RULES가 issue면 RULES 우선
+        if rule_label == "issue":
+            return "issue"
+
+    # 4) RULES는 non_issue, ML은 issue인데 확률이 꽤 높은 경우만 issue로 인정
+    if rule_label == "non_issue" and ml_label == "issue" and issue_prob >= 0.8:
+        return "issue"
+
+    # 5) 나머지는 non_issue
+    return "non_issue"
+
+
+def build_diagnostics(
+    rule_result: Optional[Dict],
+    ml_result: Optional[Dict],
+    final_label: Optional[str],
+) -> Optional[Dict]:
+    """
+    교육생이 '어디를 의심해야 하는지'를 한 번에 볼 수 있도록
+    RULES / ML / 최종 라벨 간의 관계를 요약한 진단 정보 생성.
+
+    주요 플래그:
+    - label_conflict: RULES vs ML 라벨 충돌
+    - low_confidence: ML이 issue / non_issue를 애매하게 보고 있는 케이스
+      (issue 확률이 40~60% 사이일 때)
+    - category_other: RULES 카테고리가 '기타'인 케이스
+    """
+    if not rule_result or not ml_result or not final_label:
+        return None
 
     rule_label = rule_result.get("label", "non_issue")
     rule_category = rule_result.get("category", "")
     ml_label = ml_result.get("label", "non_issue")
-    issue_prob = ml_result.get("prob_issue", 0.0)
+    prob_issue = float(ml_result.get("prob_issue", 0.0))
+    prob_non = float(ml_result.get("prob_non_issue", 0.0))
 
-    if rule_label == "non_issue" and rule_category == "기타":
-        return "non_issue"
+    messages = []
 
-    if rule_label == ml_label:
-        return rule_label
+    # 1) RULES vs ML 라벨 충돌
+    label_conflict = rule_label != ml_label
+    if label_conflict:
+        messages.append(
+            f"RULES와 ML 라벨이 서로 다릅니다. (RULES: {rule_label}, ML: {ml_label})"
+        )
 
-    if rule_label == "issue":
-        return "issue"
+    # 2) ML 신뢰도 낮음 (issue 확률이 40~60% 구간이면 애매한 케이스로 간주)
+    low_confidence = 0.4 <= prob_issue <= 0.6
+    if low_confidence:
+        messages.append(
+            "ML이 issue / non_issue 확률을 비슷하게 보고 있어 신뢰도가 낮은 케이스입니다."
+            f" (issue {prob_issue * 100:.1f}%, non_issue {prob_non * 100:.1f}%)"
+        )
 
-    if rule_label == "non_issue" and ml_label == "issue" and issue_prob >= 0.9:
-        return "issue"
+    # 3) RULES 카테고리가 '기타'인 경우
+    category_other = "기타" == rule_category or rule_category.startswith("기타 ")
+    if category_other:
+        messages.append(
+            "RULES 카테고리가 '기타'로 분류되었습니다. "
+            "체크리스트를 기준으로 직접 카테고리를 다시 한 번 확인해 주세요."
+        )
 
-    return "non_issue"
+    needs_attention = label_conflict or low_confidence or category_other
+
+    if not messages:
+        messages.append(
+            "현재 기준으로는 RULES와 ML이 큰 충돌 없이 일치하는 케이스입니다. "
+            "그래도 체크리스트와 함께 교차 확인해 주세요."
+        )
+
+    return {
+        "rule_label": rule_label,
+        "rule_category": rule_category,
+        "ml_label": ml_label,
+        "prob_issue": prob_issue,
+        "prob_non_issue": prob_non,
+        "label_conflict": label_conflict,
+        "low_confidence": low_confidence,
+        "category_other": category_other,
+        "needs_attention": needs_attention,
+        "messages": messages,
+    }
 
 
 # ---------------------------------------------------
-# 2) 교육자용 요약 문구 자동 생성
+# 4) 교육자용 요약 문구 생성
 # ---------------------------------------------------
 
 def build_summary_text(
     game: str,
     text: str,
-    rule_result: dict,
-    ml_result: dict | None,
-) -> str | None:
+    rule_result: Dict,
+    ml_result: Optional[Dict],
+) -> Optional[str]:
     """
     교육자가 바로 피드백을 줄 수 있도록,
     - 핵심 이슈가 무엇인지
@@ -177,7 +291,7 @@ def build_summary_text(
     label = rule_result.get("label", "non_issue")
     category = rule_result.get("category", "")
 
-    parts: list[str] = []
+    parts = []
 
     # 1) 핵심 이슈 문장
     if label == "issue":
@@ -185,15 +299,22 @@ def build_summary_text(
     else:
         main_head = "핵심 판단"
 
-    main_type = None
+    main_type: Optional[str] = None
     if "접속/로그인 불가" in category:
         main_type = "접속/로그인 불가(게임 접속 불가 / 서버 연결 실패)"
     elif "버그/오류 제보" in category:
         main_type = "버그/오류 제보"
-    elif "보상/재화" in category or "보상/이벤트" in category:
+    elif (
+        "보상/재화" in category
+        or "재화/보상" in category
+        or "보상/이벤트" in category
+        or "결제/재화/보상" in category
+    ):
         main_type = "결제/보상/재화 관련 이슈"
     elif "커뮤니티(" in category:
         main_type = "커뮤니티 게시글/댓글 관련 이슈"
+    elif "기간 종료" in category:
+        main_type = "이벤트/패스 기간 종료로 인한 정상 동작"
 
     if main_type:
         parts.append(f"{main_head}: {main_type} (카테고리: {category})")
@@ -233,19 +354,24 @@ def build_summary_text(
 
 
 # ---------------------------------------------------
-# 3) 로그 저장
+# 5) 로그 저장 (프로세스 설명 컬럼 제거)
 # ---------------------------------------------------
 
 def append_log(
     game: str,
     text: str,
-    rule_result: dict,
-    ml_result: dict,
+    rule_result: Dict,
+    ml_result: Dict,
     final_label: str,
-    process_desc: str | None,
+    suspect_game_mismatch: bool,
 ) -> None:
     """
     결과를 CSV 로그 파일에 한 줄씩 추가.
+    프로세스 설명 컬럼은 더 이상 사용하지 않음.
+
+    (4순위 패치)
+    - 게임 선택과 캐릭터 감지 결과가 어긋난 경우를
+      suspect_game_mismatch 컬럼으로 함께 기록.
     """
     is_new_file = not os.path.exists(LOG_PATH)
 
@@ -264,7 +390,7 @@ def append_log(
                     "ml_prob_issue",
                     "ml_prob_non_issue",
                     "final_label",
-                    "process_description",
+                    "suspect_game_mismatch",
                 ]
             )
 
@@ -280,112 +406,188 @@ def append_log(
                 f"{ml_result.get('prob_issue', 0.0):.4f}",
                 f"{ml_result.get('prob_non_issue', 0.0):.4f}",
                 final_label,
-                (process_desc or "").replace("\n", " "),
+                "1" if suspect_game_mismatch else "0",
             ]
         )
 
 
 # ---------------------------------------------------
-# 4) Flask 라우트
+# 6) 한 번의 분류 요청을 처리하는 공통 함수
+#    (5순위 패치: 피드백 덮어쓰기 포함)
+# ---------------------------------------------------
+
+def run_classification(game: str, content: str) -> Dict[str, Any]:
+    """
+    하나의 텍스트에 대해 RULES + ML + 피드백까지 모두 반영한
+    최종 결과를 계산하고, 템플릿에서 바로 쓸 수 있는 dict로 반환.
+    """
+    # 1) RULES 기반 결과
+    rule_result = rules_classify(game, content)
+
+    # 2) ML 결과
+    ml_result = predict_issue(content)
+
+    # 3) 최종 라벨 결정 (맥락 플래그 포함)
+    final_label = decide_final_label(rule_result, ml_result)
+
+    # 4) 요약 문구 생성 (교육자용)
+    summary_text = build_summary_text(game, content, rule_result, ml_result)
+
+    # 5) 진단 정보 생성 (RULES vs ML / 애매한 케이스 등)
+    diagnostics = build_diagnostics(rule_result, ml_result, final_label)
+
+    # 6) 게임 선택(FM/NK) ↔ 캐릭터 검출 뒤틀림 체크
+    mismatch_info = detect_character_game_mismatch(game, content)
+    suspect_game_mismatch = bool(mismatch_info.get("mismatch", False))
+
+    game_warning: Optional[str] = None
+    if suspect_game_mismatch:
+        game_warning = (
+            f"주의: 선택한 게임({game})과 감지된 캐릭터명이 어긋난 것 같습니다. "
+            "게임 선택 또는 텍스트 복사 구간을 다시 확인해 주세요."
+        )
+
+    # 7) 텍스트 해시 계산
+    text_hash = get_text_hash(content)
+
+    # 8) (5순위 패치) 피드백 여부 확인 및 최종 결과 덮어쓰기
+    feedback_applied = False
+    feedback_correct_label: Optional[str] = None
+    feedback_correct_category: Optional[str] = None
+
+    fb_info = load_feedback_for_hash(text_hash)
+    if fb_info:
+        # 정답 라벨
+        fb_label = fb_info.get("correct_label", "").lower()
+        if fb_label in ("issue", "non_issue"):
+            final_label = fb_label
+            feedback_applied = True
+            feedback_correct_label = fb_label
+
+        # 정답 카테고리
+        fb_cat = fb_info.get("correct_category", "")
+        if fb_cat:
+            rule_result["category"] = fb_cat
+            feedback_applied = True
+            feedback_correct_category = fb_cat
+
+    # 9) 로그 저장 (피드백으로 덮어쓴 final_label 기준)
+    append_log(
+        game,
+        content,
+        rule_result,
+        ml_result,
+        final_label,
+        suspect_game_mismatch,
+    )
+
+    return {
+        "rule_result": rule_result,
+        "ml_result": ml_result,
+        "final_label": final_label,
+        "summary_text": summary_text,
+        "diagnostics": diagnostics,
+        "game_warning": game_warning,
+        "text_hash": text_hash,
+        "feedback_applied": feedback_applied,
+        "feedback_correct_label": feedback_correct_label,
+        "feedback_correct_category": feedback_correct_category,
+    }
+
+
+# ---------------------------------------------------
+# 7) Flask 라우트
 # ---------------------------------------------------
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     game = "FM"
     content = ""
-    rule_result = None
-    ml_result = None
-    final_label = None
-    process_desc = None
-    summary_text = None
 
-    # Training Mode용 상태 변수
-    training_example = None
-    training_result = None
-    training_explanation = None
-    quiz_feedback = None
-    quiz_options: list[str] = []
+    rule_result: Optional[Dict] = None
+    ml_result: Optional[Dict] = None
+    final_label: Optional[str] = None
+    summary_text: Optional[str] = None
+    diagnostics: Optional[Dict] = None
+    game_warning: Optional[str] = None
+
+    text_hash: Optional[str] = None
+    feedback_applied: bool = False
+    feedback_correct_label: Optional[str] = None
+    feedback_correct_category: Optional[str] = None
+    feedback_saved: bool = False
 
     if request.method == "POST":
-        mode = request.form.get("mode", "classify")
+        action = request.form.get("action", "classify")
 
-        # (A) 일반 이슈 분류 모드
-        if mode == "classify":
+        # -----------------------------------------------
+        # A) 피드백 저장 처리
+        # -----------------------------------------------
+        if action == "feedback":
+            game = request.form.get("game", "FM")
+            content = request.form.get("content", "").strip()
+            text_hash = request.form.get("text_hash", "").strip()
+
+            if content:
+                if not text_hash:
+                    text_hash = get_text_hash(content)
+
+                # 정답 라벨 (ISSUE / NON ISSUE → 내부적으로 issue / non_issue)
+                fb_label_raw = request.form.get("feedback_label", "").strip().upper()
+                if fb_label_raw == "ISSUE":
+                    correct_label = "issue"
+                elif fb_label_raw in ("NON ISSUE", "NON_ISSUE", "NONISSUE"):
+                    correct_label = "non_issue"
+                else:
+                    correct_label = ""
+
+                # 정답 카테고리 + 코멘트
+                correct_category = request.form.get("feedback_category", "").strip()
+                comment = request.form.get("feedback_comment", "").strip()
+
+                # CSV에 저장
+                save_feedback(
+                    game=game,
+                    text=content,
+                    text_hash=text_hash,
+                    correct_label=correct_label,
+                    correct_category=correct_category,
+                    comment=comment,
+                )
+                feedback_saved = True
+
+                # 저장 직후, 동일 텍스트로 다시 분류 실행 → 피드백이 곧바로 반영된 상태를 보여줌
+                class_data = run_classification(game, content)
+                rule_result = class_data["rule_result"]
+                ml_result = class_data["ml_result"]
+                final_label = class_data["final_label"]
+                summary_text = class_data["summary_text"]
+                diagnostics = class_data["diagnostics"]
+                game_warning = class_data["game_warning"]
+                text_hash = class_data["text_hash"]
+                feedback_applied = class_data["feedback_applied"]
+                feedback_correct_label = class_data["feedback_correct_label"]
+                feedback_correct_category = class_data["feedback_correct_category"]
+
+        # -----------------------------------------------
+        # B) 일반 분류 실행
+        # -----------------------------------------------
+        else:
             game = request.form.get("game", "FM")
             content = request.form.get("content", "").strip()
 
             if content:
-                # 1) RULES 기반 결과
-                rule_result = rules_classify(game, content)
-
-                # 2) ML 결과
-                ml_result = predict_issue(content)
-
-                # 3) 교육용 예시 기반 프로세스 설명 (텍스트 설명)
-                process_desc = suggest_process_description(game, content)
-
-                # rule_result 안에 교육용 설명만 추가 (카테고리/라벨은 건드리지 않음)
-                if process_desc and isinstance(rule_result, dict):
-                    rule_result["education_desc"] = process_desc
-
-                # 4) 최종 라벨 결정
-                final_label = decide_final_label(rule_result, ml_result)
-
-                # 5) 요약 문구 생성 (교육자용)
-                summary_text = build_summary_text(game, content, rule_result, ml_result)
-
-                # 6) 로그 저장
-                append_log(
-                    game,
-                    content,
-                    rule_result,
-                    ml_result,
-                    final_label,
-                    process_desc,
-                )
-
-        # (B) Training Mode - 헷갈리는 예제 불러오기
-        elif mode == "example":
-            ex = random.choice(CONFUSING_EXAMPLES)
-            training_example = {
-                "id": ex["id"],
-                "game": ex["game"],
-                "text": ex["text"],
-            }
-            training_result = rules_classify(ex["game"], ex["text"])
-            training_explanation = ex.get("note")
-            # 퀴즈 옵션은 해당 게임의 프로세스만 노출
-            quiz_options = build_quiz_options_for_game(ex["game"])
-
-        # (C) Training Mode - 퀴즈 답안 제출
-        elif mode == "quiz":
-            try:
-                ex_id = int(request.form.get("example_id", "0"))
-            except ValueError:
-                ex_id = 0
-
-            user_answer = request.form.get("answer_category", "")
-
-            ex = next((e for e in CONFUSING_EXAMPLES if e["id"] == ex_id), None)
-            if ex:
-                training_example = {
-                    "id": ex["id"],
-                    "game": ex["game"],
-                    "text": ex["text"],
-                }
-                training_result = rules_classify(ex["game"], ex["text"])
-                correct_category = training_result.get("category", "")
-                training_explanation = ex.get("note")
-                # 퀴즈 옵션도 다시 세팅 (새로고침 없이 여러 번 푸는 경우용)
-                quiz_options = build_quiz_options_for_game(ex["game"])
-
-                if user_answer == correct_category:
-                    quiz_feedback = "정답입니다. (RULES 기준 분류와 일치합니다.)"
-                else:
-                    quiz_feedback = (
-                        "오답입니다. 위의 '툴 기준 정답'을 참고하여 "
-                        "어떤 이슈가 더 우선인지 다시 한 번 확인해 주세요."
-                    )
+                class_data = run_classification(game, content)
+                rule_result = class_data["rule_result"]
+                ml_result = class_data["ml_result"]
+                final_label = class_data["final_label"]
+                summary_text = class_data["summary_text"]
+                diagnostics = class_data["diagnostics"]
+                game_warning = class_data["game_warning"]
+                text_hash = class_data["text_hash"]
+                feedback_applied = class_data["feedback_applied"]
+                feedback_correct_label = class_data["feedback_correct_label"]
+                feedback_correct_category = class_data["feedback_correct_category"]
 
     return render_template(
         "index.html",
@@ -394,13 +596,14 @@ def index():
         rule_result=rule_result,
         ml_result=ml_result,
         final_label=final_label,
-        process_desc=process_desc,
         summary_text=summary_text,
-        training_example=training_example,
-        training_result=training_result,
-        training_explanation=training_explanation,
-        quiz_feedback=quiz_feedback,
-        quiz_options=quiz_options,
+        diagnostics=diagnostics,
+        game_warning=game_warning,
+        text_hash=text_hash,
+        feedback_applied=feedback_applied,
+        feedback_correct_label=feedback_correct_label,
+        feedback_correct_category=feedback_correct_category,
+        feedback_saved=feedback_saved,
     )
 
 

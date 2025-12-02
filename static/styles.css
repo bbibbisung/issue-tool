@@ -134,6 +134,60 @@ body {
   border: 1px solid #22c55e;
 }
 
+/* 피드백 적용 배지 (5순위 패치) */
+.badge-feedback {
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+  border: 1px solid #38bdf8;
+  margin-left: 6px;
+}
+
+/* 경고/안내 배지 (결과 진단용) */
+.badge-warning {
+  background: rgba(250, 204, 21, 0.16);
+  color: #facc15;
+  border: 1px solid #facc15;
+}
+
+.badge-ok {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+  border: 1px solid #3b82f6;
+}
+
+/* 결과 진단 카드 */
+.diag-card {
+  margin-top: 4px;
+}
+
+.diag-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.diag-lead {
+  margin: 0;
+  font-size: 13px;
+  color: #e5e7eb;
+}
+
+.diag-box {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #101520;
+  border: 1px solid #374151;
+}
+
+.diag-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 /* 원문 텍스트 */
 .raw-text {
   margin: 0;
@@ -177,4 +231,78 @@ body {
   line-height: 1.6;
   white-space: pre-wrap;   /* 줄바꿈 문자 유지 + 자동 줄바꿈 허용 */
   word-break: break-word;  /* 긴 단어도 카드 안에서 강제 줄바꿈 */
+}
+
+/* ===== 체크리스트 섹션 (이미 사용 중인 구조용) ===== */
+.checklist-section {
+  margin-top: 16px;
+}
+
+.checklist-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.checklist-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.checklist-thumb img {
+  display: block;
+  width: 80px;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid #1f2937;
+}
+
+.checklist-text {
+  font-size: 13px;
+  color: #d1d5db;
+}
+
+.checklist-main {
+  margin: 0 0 4px;
+}
+
+.checklist-sub {
+  margin: 0;
+  color: #9ca3af;
+}
+
+/* ===== 피드백 폼 (5순위 패치) ===== */
+.feedback-card {
+  margin-top: 12px;
+}
+
+.feedback-save-message {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #bbf7d0;
+}
+
+.feedback-desc {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #d1d5db;
+}
+
+.feedback-form .inline-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.feedback-form .field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 작은 화면에서 피드백 인라인 필드 줄바꿈 */
+@media (max-width: 600px) {
+  .feedback-form .inline-row {
+    flex-direction: column;
+  }
 }

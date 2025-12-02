@@ -6,25 +6,32 @@ rules.py
 - 1차: 프로세스(PROCESS_RULES) 기준으로 최대한 구체적으로 매칭
 - 2차: 안 걸리는 경우 일반 카테고리(CATEGORY_RULES)로 처리
 
-이번 버전에서 추가된 점:
-- 각 프로세스 룰에 priority(우선순위) 필드를 추가
-- 같은 문장에 여러 이슈가 섞여 있을 때,
+기능 요약:
+- priority(우선순위) 필드를 사용해 여러 이슈가 섞였을 때
   → priority가 가장 높은 프로세스를 먼저 선택
   → priority가 같으면, 매칭된 키워드 개수가 더 많은 룰 선택
 - 접속/로그인 불가 이슈에 대해, 단어가 떨어져 있어도 잡아내는
-  detect_connection_issue() 전용 로직 추가
+  detect_connection_issue() 전용 로직
 - 공백/특수문자 제거한 텍스트까지 같이 검사해서
-  "씨 발", "접 속 안 됨", "접속.안돼" 등도 인식 가능
-- 어떤 룰에도 안 걸리면 기본 라벨을 non_issue 로 처리
+  "씨 발", "접 속 안 됨", "접속.안돼" 등도 인식
 
 이번 패치에서 추가된 점:
-- 이벤트 관련 문장 중, 단순 일정/안내 질문을
-  "보상/이벤트 불만"과 구분하기 위한 is_simple_event_question() 추가
+- 이벤트/패스가 기간 종료되어 보상이 안 들어오는 '정상 동작' 케이스를
+  detect_event_expired_case()로 선 처리하여 non_issue 로 분류
+- 이벤트 관련 단순 일정/안내 질문은 is_simple_event_question() 으로 판별
+  → "보상/이벤트 불만"과 구분
 - FM/NK 보상/이벤트/재화 불만 룰의 키워드를
   "불만 표현 위주"로 좁혀서 단순 '이벤트' 언급은 걸리지 않도록 조정
-- CATEGORY_RULES의 '운영/보상 불만'에서도 단순 '이벤트' 키워드는 제거
 - RULES에서 쓰는 카테고리 문자열을 한 곳에서 생성하는
-  make_process_category_name() 유틸 추가
+  make_process_category_name() 유틸 제공
+- 이벤트가 원래 더 진행되어야 하는데 조기 종료된 것 같은 케이스를
+  detect_event_ended_early_issue()로 선 처리하여 issue 로 분류
+- 위 조기 종료/기간 종료 휴리스틱의 키워드를 보강하여
+  "이벤트 기간 내일까지인데 왜 벌써/오늘 끝남?" 같은 문구를 더 안정적으로 인식
+- (4순위 패치) 선택한 게임(FM/NK)과 감지된 캐릭터명이 뒤틀리는 상황을
+  감지하기 위한 detect_character_game_mismatch() 보조 함수 추가
+- (스킬 오류 보강 패치) "스킬 안 써짐/발동 안 됨" 등 스킬 사용 불가 표현을
+  FM/NK 버그/오류 RULES + 버그/오류 카테고리에서 공통 인식하도록 보강
 """
 
 from typing import List, Dict, Optional
@@ -101,6 +108,154 @@ def is_simple_event_question(text: str) -> bool:
         return False
 
     return True
+
+
+def detect_event_ended_early_issue(text: str) -> Optional[Dict]:
+    """
+    '이벤트/패스가 아직 기간이 남았어야 하는데, 너무 일찍 끝난 것 같은 상황'을
+    issue 로 인식하기 위한 휴리스틱.
+    """
+    if not text:
+        return None
+
+    t = text
+    t_comp = normalize_text(text)
+
+    # 1) 이벤트/패스/보상 관련 키워드
+    event_keywords = [
+        "이벤트", "패스", "출석 패스", "출석패스", "시즌 패스", "시즌패스",
+        "배틀 패스", "배틀패스",
+        "보상", "경험치", "포인트", "티켓", "코인",
+    ]
+
+    # 2) 남은 기간 기대 표현
+    expect_keywords = [
+        "내일까지인데", "내일 까지인데", "내일까지 인데",
+        "내일까지인줄", "내일까지인 줄",
+        "내일까지라고", "내일까지 라고",
+        "오늘까지인데", "오늘 까지인데", "오늘까지인 줄",
+        "주말까지인데", "주말까지 한다더니",
+        "까지라고 했는데", "까지라고 했잖", "까지라고 써 있었",
+        "까지인 줄 알았", "기간 내인데", "기간 안인데",
+        "내일까지인데왜", "내일까지인데벌써",
+    ]
+
+    # 3) 조기 종료 표현
+    early_end_keywords = [
+        "벌써 끝", "벌써끝", "이미 끝났", "이미 끝남",
+        "갑자기 끝났", "갑자기 종료", "갑자기 꺼졌",
+        "중간에 끝났", "중간에 종료", "중간에 사라졌",
+        "사라졌네요", "사라졌어요",
+        "안 보이네요", "안 보입니다", "안 뜨네요", "안 떠요",
+        "더 이상 안 열리", "더이상 안 열리",
+        "오늘 끝났", "오늘끝났", "오늘 끝남", "오늘끝남",
+        "오늘 종료", "오늘종료",
+    ]
+
+    # 4) 불만/이상/버그 의심 표현
+    complain_keywords = [
+        "왜 벌써", "왜 이렇게 빨리", "왜 끝", "왜 종료", "왜 사라졌",
+        "버그 아닌가", "버그 아닌가요", "버그 아닌 거냐", "버그인가요",
+        "이상하", "이상한데", "이상해서",
+        "공지랑 다르", "공지랑 다른데", "공지랑 다른 것 같",
+        "공지 보고", "공지에는", "공지에선",
+        "끝남", "끝났네", "끝났네요", "끝났는데", "끝나버렸",
+    ]
+
+    hits_event = find_keyword_hits(event_keywords, t, t_comp)
+    if not hits_event:
+        return None
+
+    hits_expect = find_keyword_hits(expect_keywords, t, t_comp)
+    if not hits_expect:
+        return None
+
+    hits_early = find_keyword_hits(early_end_keywords, t, t_comp)
+    if not hits_early:
+        return None
+
+    hits_complain = find_keyword_hits(complain_keywords, t, t_comp)
+    if not hits_complain:
+        return None
+
+    hits_all = list(dict.fromkeys(hits_event + hits_expect + hits_early + hits_complain))
+    return {"matched_keywords": hits_all}
+
+
+def detect_event_expired_case(text: str) -> Optional[Dict]:
+    """
+    '이벤트/패스 기간이 이미 끝났기 때문에, 그 이후에 진행한 것들이 안 들어온 상황'을
+    non_issue(정상 정책)으로 인식하기 위한 휴리스틱.
+    """
+    if not text:
+        return None
+
+    t = text
+    t_comp = normalize_text(text)
+
+    expire_keywords = [
+        "기간 종료", "이벤트 종료", "패스 종료", "시즌 종료",
+        "이미 끝난", "이미 종료", "끝난 이벤트",
+        "어제까지만", "어제까진", "어제까지였", "어제까지였던",
+        "지난 이벤트", "지난이벤트",
+        "12시까지", "24시까지", "23:59까지", "23시59분까지",
+        "까지였는데", "까지라고 되어", "지나서 안", "지나니까 안",
+        "기한이 지났", "기한이 지나",
+    ]
+    event_keywords = [
+        "이벤트", "패스", "출석 패스", "출석패스", "시즌 패스", "시즌패스",
+        "배틀 패스", "배틀패스",
+    ]
+    reward_keywords = [
+        "보상", "경험치", "패스 경험치", "포인트", "티켓", "코인",
+    ]
+    problem_keywords = [
+        "안 들어왔", "안들어왔", "안 들어옴", "안들어옴",
+        "안 들어와", "안들어와", "안 받았", "못 받았",
+        "적용 안 됐", "적용이 안 됐", "적용이 안됨", "적용 안됨",
+        "지급이 안 됐", "지급 안 됨", "지급 안됨", "지급이 안되",
+        "적용이 안되", "적용 안되",
+    ]
+
+    hits_expire = find_keyword_hits(expire_keywords, t, t_comp)
+    if not hits_expire:
+        return None
+
+    hits_event = find_keyword_hits(event_keywords + reward_keywords, t, t_comp)
+    if not hits_event:
+        return None
+
+    hits_problem = find_keyword_hits(problem_keywords, t, t_comp)
+    if not hits_problem:
+        return None
+
+    hits_all = list(dict.fromkeys(hits_expire + hits_event + hits_problem))
+    return {"matched_keywords": hits_all}
+
+
+# ---------------------------------------------------
+# 스킬 오류 공통 키워드 (신규)
+# ---------------------------------------------------
+
+SKILL_ERROR_KEYWORDS: List[str] = [
+    "스킬 안 써짐",
+    "스킬안써짐",
+    "스킬이 안 써짐",
+    "스킬이 안써짐",
+    "스킬 안 써져",
+    "스킬이 안 써져",
+    "스킬 안써져",
+    "스킬을 못 씀",
+    "스킬을못씀",
+    "스킬이 안 나감",
+    "스킬이 안나감",
+    "스킬 나가지 않",
+    "스킬 발동 안",
+    "스킬이 안 발동",
+    "스킬 발동이 안",
+    "스킬 사용 안",
+    "스킬이 사용이 안",
+]
 
 
 # ---------------------------------------------------
@@ -199,7 +354,6 @@ PROCESS_RULES: List[Dict] = [
         "label": "issue",
         "priority": 80,
         "keywords": [
-            # 보상/재화에 대한 '불만' 위주
             "보상 안", "보상이 안", "보상도 안", "보상은 안", "보상 왜",
             "보상 안 줌", "보상 안주네", "보상 안 주네",
             "보상 안해줌", "보상 하나도", "보상 너무 짜",
@@ -225,6 +379,74 @@ PROCESS_RULES: List[Dict] = [
             "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
             "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
             "퀘스트가 안 깨져", "퀘스트가 진행이 안",
+            "맵에 끼어", "맵 끼임", "맵끼임",
+            "캐릭터가 끼어", "캐릭터가 껴서",
+            "벽에 끼어", "벽 끼임",
+            *SKILL_ERROR_KEYWORDS,
+        ],
+    },
+
+    # ===== FM : 버그/오류 제보 (여러 번 정의되어 있어도 동작에는 문제 없음) =====
+    {
+        "game": "FM",
+        "process_name": "버그/오류 제보",
+        "importance": "A",
+        "detail_name": "게임 내 기능/전투 등 오류/버그",
+        "label": "issue",
+        "priority": 95,
+        "keywords": [
+            "버그",
+            "오류",
+            "에러",
+            "에러가 나",
+            "튕김",
+            "튕겨",
+            "렉",
+            "지연",
+            "멈춤",
+            "멈춰",
+            "프리징",
+            "강제 종료",
+            "캐릭터가 안 움직",
+            "스킬이 안 나가",
+            "피해가 안 들어가",
+            "데미지가 안 들어가",
+            "퀘스트가 안 깨져",
+            "퀘스트가 진행이 안",
+            *SKILL_ERROR_KEYWORDS,
+        ],
+    },
+    {
+        "game": "FM",
+        "process_name": "버그/오류 제보",
+        "importance": "A",
+        "detail_name": "게임 내 기능/전투 등 오류/버그",
+        "label": "issue",
+        "priority": 95,
+        "keywords": [
+            "버그", "오류", "에러", "에러가 나", "튕김", "튕겨", "렉", "지연",
+            "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
+            "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
+            "퀘스트가 안 깨져", "퀘스트가 진행이 안",
+            "맵에 끼어", "맵 끼임", "맵끼임",
+            "캐릭터가 끼어", "캐릭터가 껴서",
+            "벽에 끼어", "벽 끼임",
+            *SKILL_ERROR_KEYWORDS,
+        ],
+    },
+    {
+        "game": "FM",
+        "process_name": "버그/오류 제보",
+        "importance": "A",
+        "detail_name": "게임 내 기능/전투 등 오류/버그",
+        "label": "issue",
+        "priority": 95,
+        "keywords": [
+            "버그", "오류", "에러", "에러가 나", "튕김", "튕겨", "렉", "지연",
+            "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
+            "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
+            "퀘스트가 안 깨져", "퀘스트가 진행이 안",
+            *SKILL_ERROR_KEYWORDS,
         ],
     },
 
@@ -273,7 +495,6 @@ PROCESS_RULES: List[Dict] = [
         "label": "issue",
         "priority": 80,
         "keywords": [
-            # 보상/이벤트에 대한 '불만' 표현 위주
             "보상 안", "보상이 안", "보상도 안", "보상은 안", "보상 왜",
             "보상 안 줌", "보상 안주네", "보상 안 주네",
             "보상 안해줌", "보상 하나도", "보상 너무 짜",
@@ -287,7 +508,7 @@ PROCESS_RULES: List[Dict] = [
         ],
     },
 
-    # ===== FM : 버그/오류 제보 =====
+    # ===== FM : 버그/오류 제보 (마지막 정의) =====
     {
         "game": "FM",
         "process_name": "버그/오류 제보",
@@ -300,6 +521,7 @@ PROCESS_RULES: List[Dict] = [
             "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
             "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
             "퀘스트가 안 깨져", "퀘스트가 진행이 안",
+            *SKILL_ERROR_KEYWORDS,
         ],
     },
 
@@ -365,6 +587,7 @@ CATEGORY_RULES: List[Dict] = [
         "keywords": [
             "버그", "오류", "튕김", "렉", "지연", "멈춤", "프리징", "강제 종료",
             "이상 현상", "깨짐", "버그인지",
+            *SKILL_ERROR_KEYWORDS,
         ],
     },
     {
@@ -396,7 +619,7 @@ CATEGORY_RULES: List[Dict] = [
 
 
 # ---------------------------------------------------
-# 4) 카테고리 문자열 생성 유틸 (RULES + 퀴즈 공통 사용)
+# 4) 카테고리 문자열 생성 유틸 (RULES 공통 사용)
 # ---------------------------------------------------
 
 def make_process_category_name(
@@ -406,7 +629,7 @@ def make_process_category_name(
     detail_name: str,
 ) -> str:
     """
-    RULES 결과, 퀴즈 선택지에서 공통으로 사용하는 카테고리 문자열 생성기.
+    RULES 결과에서 공통으로 사용하는 카테고리 문자열 생성기.
 
     예) [FM] 버그/오류 제보 (A) - 게임 내 기능/전투 등 오류/버그
     """
@@ -429,17 +652,49 @@ def detect_characters(game: str, text: str) -> List[str]:
         if name and name in text:
             found.append(name)
 
-    # 중복 제거
     return list(dict.fromkeys(found))
+
+
+def detect_character_game_mismatch(selected_game: str, text: str) -> Dict[str, object]:
+    """
+    (4순위 패치) 선택한 게임과 감지된 캐릭터명이 뒤틀리는 상황 감지용 보조 함수.
+    """
+    if not text:
+        return {
+            "mismatch": False,
+            "selected_game": selected_game,
+            "fm_characters": [],
+            "nk_characters": [],
+            "reason": "",
+        }
+
+    fm_chars = detect_characters("FM", text)
+    nk_chars = detect_characters("NK", text)
+
+    mismatch = False
+    reason = ""
+
+    if selected_game == "FM":
+        if nk_chars and not fm_chars:
+            mismatch = True
+            reason = "선택한 게임은 FM이지만, NK 캐릭터명으로 보이는 단어만 감지되었습니다."
+    elif selected_game == "NK":
+        if fm_chars and not nk_chars:
+            mismatch = True
+            reason = "선택한 게임은 NK이지만, FM 캐릭터명으로 보이는 단어만 감지되었습니다."
+
+    return {
+        "mismatch": mismatch,
+        "selected_game": selected_game,
+        "fm_characters": fm_chars,
+        "nk_characters": nk_chars,
+        "reason": reason,
+    }
 
 
 def detect_connection_issue(text: str) -> bool:
     """
     접속/로그인 불가 전용 휴리스틱.
-
-    - '접속/로그인/서버/네트워크/로딩/연결' 같은 접속 계열 단어가 하나 이상 있고
-    - '안 되/안되/안됨/안돼/튕김/에러/오류/멈춤/안 들어가' 같은 실패 계열 단어가
-      하나 이상 있으면 접속 이슈로 간주.
     """
     if not text:
         return False
@@ -462,11 +717,6 @@ def detect_connection_issue(text: str) -> bool:
 def apply_process_rules(game: str, text: str) -> Optional[Dict]:
     """
     프로세스 기준 RULES를 적용.
-
-    - 같은 게임에 속한 프로세스 중
-      1) priority가 가장 높은 룰을 우선
-      2) priority가 같다면, 매칭된 키워드 수가 더 많은 룰 선택
-    - 아무 것도 매칭되지 않으면 None 반환.
     """
     if not text:
         return None
@@ -492,8 +742,6 @@ def apply_process_rules(game: str, text: str) -> Optional[Dict]:
         if rule["game"] != game:
             continue
 
-        # 이벤트 일정에 대한 단순 질문이면,
-        # '보상/이벤트 관련 불만', '보상/재화 관련 불만' 류 룰은 건너뛴다.
         if simple_event_q and (
             "보상/이벤트 관련 불만" in rule.get("detail_name", "")
             or "보상/재화 관련 불만" in rule.get("detail_name", "")
@@ -506,8 +754,6 @@ def apply_process_rules(game: str, text: str) -> Optional[Dict]:
 
         prio = rule.get("priority", 0)
 
-        # priority가 더 높으면 교체
-        # priority가 같다면, 매칭 키워드 개수가 더 많을 때 교체
         if (prio > best_priority) or (
             prio == best_priority and len(hits) > len(best_hits)
         ):
@@ -530,8 +776,6 @@ def apply_process_rules(game: str, text: str) -> Optional[Dict]:
 def apply_category_rules(text: str) -> Dict:
     """
     일반 카테고리 룰 적용.
-    첫 번째로 매칭되는 카테고리를 하나만 사용.
-    매칭이 전혀 안 되면 '기타 / non_issue' 로 처리.
     """
     if not text:
         return {
@@ -551,7 +795,6 @@ def apply_category_rules(text: str) -> Dict:
                 "matched_keywords": hits,
             }
 
-    # 아무 것도 안 걸리면 기타 + non_issue
     return {
         "name": "기타",
         "label": "non_issue",
@@ -566,16 +809,38 @@ def apply_category_rules(text: str) -> Dict:
 def rules_classify(game: str, text: str) -> Dict:
     """
     RULES 기반 최종 판단 함수.
-    - 1차: 프로세스 매칭 (PROCESS_RULES)
-    - 2차: 일반 카테고리 (CATEGORY_RULES)
-    - 캐릭터 감지 정보 추가
     """
     if not isinstance(text, str):
         text = str(text)
 
     characters = detect_characters(game, text)
 
-    # 1) 프로세스 룰 먼저 적용
+    early_info = detect_event_ended_early_issue(text)
+    if early_info:
+        category_name = "이벤트/패스 기간 조기 종료 의심"
+        if characters:
+            category_name = f"{category_name} + 캐릭터 관련"
+
+        return {
+            "label": "issue",
+            "category": category_name,
+            "matched_keywords": early_info["matched_keywords"],
+            "characters": characters,
+        }
+
+    expired_info = detect_event_expired_case(text)
+    if expired_info:
+        category_name = "이벤트/패스 기간 종료 (정상 동작)"
+        if characters:
+            category_name = f"{category_name} + 캐릭터 관련"
+
+        return {
+            "label": "non_issue",
+            "category": category_name,
+            "matched_keywords": expired_info["matched_keywords"],
+            "characters": characters,
+        }
+
     proc_info = apply_process_rules(game, text)
 
     if proc_info:
@@ -588,19 +853,17 @@ def rules_classify(game: str, text: str) -> Dict:
         base_label = proc_info["label"]
         matched_keywords = proc_info["matched_keywords"]
     else:
-        # 2) 프로세스로 못 잡았으면 일반 카테고리로
         cat_info = apply_category_rules(text)
         category_name = cat_info["name"]
         base_label = cat_info["label"]
         matched_keywords = cat_info["matched_keywords"]
 
-    # 캐릭터가 포함되어 있으면 카테고리 문구에 표시 추가
     if characters:
         category_name = f"{category_name} + 캐릭터 관련"
 
     return {
-        "label": base_label,        # "issue" / "non_issue"
-        "category": category_name,  # 프로세스 기반 카테고리 문자열
+        "label": base_label,
+        "category": category_name,
         "matched_keywords": matched_keywords,
         "characters": characters,
     }
