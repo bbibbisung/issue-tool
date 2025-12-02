@@ -74,18 +74,10 @@
       {% endif %}
 
       <div class="badge-guideline">
-        {% if final_label == 'issue' %}
-          <p>
-            체크리스트 기준으로
-            <strong>“동일 유형 문의 인입 3건 이상 시 담당자 공유 권장”</strong>
-            에 해당할 가능성이 높은 이슈입니다.
-          </p>
-        {% else %}
-          <p>
-            현재로서는 <strong>“즉시 공유가 필요한 이슈”</strong>에 해당하지 않을 가능성이 높습니다.
-            다만, 아래 결과 진단과 <strong>업무 체크리스트</strong>를 반드시 함께 확인해 주세요.
-          </p>
-        {% endif %}
+        <p>
+          {{ share_guideline or
+             "현재 케이스에 대한 공유 기준은 게임별 체크리스트를 참고해 판단해 주세요." }}
+        </p>
       </div>
 
       <div class="checklist-section">
@@ -105,9 +97,10 @@
           </a>
           <div class="checklist-text">
             <p class="checklist-main">
-              체크리스트 기준:
-              동일 유형 문의가 <strong>인입 3건 이상</strong> 누적될 경우
-              담당자에게 공유하는 것을 권장합니다.
+              체크리스트 표에는 프로세스별로
+              <strong>즉시 공유 / 누적 건수 기준 / 통계 참고</strong> 등
+              세부 기준이 정리되어 있습니다.
+              실제 공유 여부는 해당 표를 기준으로 판단해 주세요.
             </p>
             <p class="checklist-sub">
               썸네일을 클릭하면 원본 체크리스트 이미지를 새 창에서 크게 확인할 수 있습니다.

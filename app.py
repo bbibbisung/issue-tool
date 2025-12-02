@@ -138,7 +138,6 @@ def save_feedback(
             [
                 datetime.now().isoformat(timespec="seconds"),
                 game,
-                text_hash,
                 text.replace("\n", " ").strip(),
                 correct_label,
                 correct_category,
@@ -354,7 +353,59 @@ def build_summary_text(
 
 
 # ---------------------------------------------------
-# 5) 로그 저장 (프로세스 설명 컬럼 제거)
+# 5) 공유 기준 안내 문구 생성 (최종 판단 상단 박스용)
+# ---------------------------------------------------
+
+def build_share_guideline(rule_result: Optional[Dict], final_label: Optional[str]) -> str:
+    """
+    최종 판단 박스 안에 들어가는 '현재로서는 즉시 공유가 필요한 이슈...' 같은
+    안내 문구를, 최종 라벨/카테고리에 맞춰 조금 더 일관성 있게 생성.
+    - 프로세스 기반 카테고리([FM]/[NK] 등)가 잡힌 경우에는
+      '구체적인 건수 기준은 체크리스트 표를 참고'하도록 유도
+    - 카테고리 '기타' 또는 완전 non_issue 인 경우에는
+      '즉시 공유 필요 가능성은 낮으나, 반복 여부를 모니터링' 쪽으로 통일
+    실제 3건/5건 등의 숫자는 체크리스트 이미지에만 두고,
+    코드 상 문구에는 구체 숫자를 넣지 않는다. (혼선 방지)
+    """
+    if not rule_result or not final_label:
+        return ""
+
+    category = (rule_result.get("category") or "").strip()
+
+    is_process_based = category.startswith("[FM]") or category.startswith("[NK]")
+    is_misc = (category == "기타") or category.startswith("기타 ")
+
+    # ISSUE 케이스
+    if final_label == "issue":
+        if is_process_based:
+            return (
+                "이 케이스는 RULES/ML 기준으로 '이슈'에 가까운 사례입니다. "
+                "구체적인 공유 기준(즉시 공유 / 누적 건수 기준 등)은 "
+                "게임별 프로세스 체크리스트 표를 참고해 판단해 주세요."
+            )
+        else:
+            return (
+                "이 케이스는 RULES/ML 기준으로 '이슈'로 분류되었습니다. "
+                "동일 유형 문의가 반복될 경우에는 체크리스트 기준에 따라 "
+                "담당자와 공유해 주세요."
+            )
+
+    # NON ISSUE 케이스
+    if is_misc:
+        return (
+            "현재로서는 RULES/ML 기준으로 '즉시 공유가 필요한 이슈'로 보기는 어렵습니다. "
+            "다만 동일 유형 문의가 반복되는지 가볍게 모니터링해 주세요."
+        )
+
+    return (
+        "현재로서는 RULES/ML 기준으로 '즉시 공유가 필요한 이슈' 가능성은 높지 않습니다. "
+        "그래도 아래 결과 진단과 업무 체크리스트를 함께 보면서 "
+        "공유 여부를 한 번 더 점검해 주세요."
+    )
+
+
+# ---------------------------------------------------
+# 6) 로그 저장 (프로세스 설명 컬럼 제거)
 # ---------------------------------------------------
 
 def append_log(
@@ -412,7 +463,7 @@ def append_log(
 
 
 # ---------------------------------------------------
-# 6) 한 번의 분류 요청을 처리하는 공통 함수
+# 7) 한 번의 분류 요청을 처리하는 공통 함수
 #    (5순위 패치: 피드백 덮어쓰기 포함)
 # ---------------------------------------------------
 
@@ -430,13 +481,7 @@ def run_classification(game: str, content: str) -> Dict[str, Any]:
     # 3) 최종 라벨 결정 (맥락 플래그 포함)
     final_label = decide_final_label(rule_result, ml_result)
 
-    # 4) 요약 문구 생성 (교육자용)
-    summary_text = build_summary_text(game, content, rule_result, ml_result)
-
-    # 5) 진단 정보 생성 (RULES vs ML / 애매한 케이스 등)
-    diagnostics = build_diagnostics(rule_result, ml_result, final_label)
-
-    # 6) 게임 선택(FM/NK) ↔ 캐릭터 검출 뒤틀림 체크
+    # 4) 게임 선택(FM/NK) ↔ 캐릭터 검출 뒤틀림 체크
     mismatch_info = detect_character_game_mismatch(game, content)
     suspect_game_mismatch = bool(mismatch_info.get("mismatch", False))
 
@@ -447,10 +492,10 @@ def run_classification(game: str, content: str) -> Dict[str, Any]:
             "게임 선택 또는 텍스트 복사 구간을 다시 확인해 주세요."
         )
 
-    # 7) 텍스트 해시 계산
+    # 5) 텍스트 해시 계산
     text_hash = get_text_hash(content)
 
-    # 8) (5순위 패치) 피드백 여부 확인 및 최종 결과 덮어쓰기
+    # 6) (5순위 패치) 피드백 여부 확인 및 최종 결과 덮어쓰기
     feedback_applied = False
     feedback_correct_label: Optional[str] = None
     feedback_correct_category: Optional[str] = None
@@ -471,7 +516,12 @@ def run_classification(game: str, content: str) -> Dict[str, Any]:
             feedback_applied = True
             feedback_correct_category = fb_cat
 
-    # 9) 로그 저장 (피드백으로 덮어쓴 final_label 기준)
+    # 7) 교육용 요약/진단/공유 기준 문구 생성
+    summary_text = build_summary_text(game, content, rule_result, ml_result)
+    diagnostics = build_diagnostics(rule_result, ml_result, final_label)
+    share_guideline = build_share_guideline(rule_result, final_label)
+
+    # 8) 로그 저장 (피드백으로 덮어쓴 final_label 기준)
     append_log(
         game,
         content,
@@ -492,11 +542,12 @@ def run_classification(game: str, content: str) -> Dict[str, Any]:
         "feedback_applied": feedback_applied,
         "feedback_correct_label": feedback_correct_label,
         "feedback_correct_category": feedback_correct_category,
+        "share_guideline": share_guideline,
     }
 
 
 # ---------------------------------------------------
-# 7) Flask 라우트
+# 8) Flask 라우트
 # ---------------------------------------------------
 
 @app.route("/", methods=["GET", "POST"])
@@ -510,6 +561,7 @@ def index():
     summary_text: Optional[str] = None
     diagnostics: Optional[Dict] = None
     game_warning: Optional[str] = None
+    share_guideline: Optional[str] = None
 
     text_hash: Optional[str] = None
     feedback_applied: bool = False
@@ -568,6 +620,7 @@ def index():
                 feedback_applied = class_data["feedback_applied"]
                 feedback_correct_label = class_data["feedback_correct_label"]
                 feedback_correct_category = class_data["feedback_correct_category"]
+                share_guideline = class_data["share_guideline"]
 
         # -----------------------------------------------
         # B) 일반 분류 실행
@@ -588,6 +641,7 @@ def index():
                 feedback_applied = class_data["feedback_applied"]
                 feedback_correct_label = class_data["feedback_correct_label"]
                 feedback_correct_category = class_data["feedback_correct_category"]
+                share_guideline = class_data["share_guideline"]
 
     return render_template(
         "index.html",
@@ -604,6 +658,7 @@ def index():
         feedback_correct_label=feedback_correct_label,
         feedback_correct_category=feedback_correct_category,
         feedback_saved=feedback_saved,
+        share_guideline=share_guideline,
     )
 
 
