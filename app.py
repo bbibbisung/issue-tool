@@ -15,6 +15,7 @@ Flask 기반 웹 서버.
 import os
 import csv
 import hashlib
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -34,6 +35,12 @@ LOG_PATH = os.path.join(LOG_DIR, "prediction_log.csv")
 FEEDBACK_LOG_PATH = os.path.join(LOG_DIR, "feedback_log.csv")
 
 os.makedirs(LOG_DIR, exist_ok=True)
+
+# 기본 로그 설정 (콘솔로 출력)
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s - %(message)s",
+)
 
 app = Flask(__name__)
 
@@ -88,11 +95,15 @@ def load_feedback_for_hash(text_hash: str) -> Optional[Dict[str, str]]:
 
     last_row: Optional[Dict[str, str]] = None
 
-    with open(FEEDBACK_LOG_PATH, "r", newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get("text_hash") == text_hash:
-                last_row = row
+    try:
+        with open(FEEDBACK_LOG_PATH, "r", newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("text_hash") == text_hash:
+                    last_row = row
+    except Exception as e:
+        logging.exception("[FEEDBACK] 피드백 로그 읽기 중 오류 발생")
+        return None
 
     if not last_row:
         return None
@@ -117,35 +128,44 @@ def save_feedback(
     컬럼:
     - timestamp, game, text_hash, text, correct_label, correct_category, comment
     """
-    is_new_file = not os.path.exists(FEEDBACK_LOG_PATH)
+    try:
+        # 경로가 혹시라도 사라진 경우를 대비해 한 번 더 보장
+        os.makedirs(LOG_DIR, exist_ok=True)
 
-    with open(FEEDBACK_LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        if is_new_file:
+        is_new_file = not os.path.exists(FEEDBACK_LOG_PATH)
+
+        with open(FEEDBACK_LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            if is_new_file:
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "game",
+                        "text_hash",
+                        "text",
+                        "correct_label",
+                        "correct_category",
+                        "comment",
+                    ]
+                )
+
             writer.writerow(
                 [
-                    "timestamp",
-                    "game",
-                    "text_hash",
-                    "text",
-                    "correct_label",
-                    "correct_category",
-                    "comment",
+                    datetime.now().isoformat(timespec="seconds"),
+                    game,
+                    text_hash,
+                    text.replace("\n", " ").strip(),
+                    correct_label,
+                    correct_category,
+                    comment,
                 ]
             )
 
-        # ✅ text_hash를 포함해서 헤더 순서와 1:1로 맞추어 저장
-        writer.writerow(
-            [
-                datetime.now().isoformat(timespec="seconds"),
-                game,
-                text_hash,
-                text.replace("\n", " ").strip(),
-                correct_label,
-                correct_category,
-                comment,
-            ]
-        )
+        logging.info(f"[FEEDBACK] 피드백 저장 완료 - {FEEDBACK_LOG_PATH}")
+
+    except Exception:
+        # 여기서 예외가 나면 콘솔에 반드시 찍히도록
+        logging.exception("[FEEDBACK] 피드백 저장 중 오류 발생")
 
 
 # ---------------------------------------------------
@@ -426,42 +446,50 @@ def append_log(
     - 게임 선택과 캐릭터 감지 결과가 어긋난 경우를
       suspect_game_mismatch 컬럼으로 함께 기록.
     """
-    is_new_file = not os.path.exists(LOG_PATH)
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
 
-    with open(LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
-        writer = csv.writer(f)
-        if is_new_file:
+        is_new_file = not os.path.exists(LOG_PATH)
+
+        with open(LOG_PATH, "a", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f)
+            if is_new_file:
+                writer.writerow(
+                    [
+                        "timestamp",
+                        "game",
+                        "text",
+                        "rule_label",
+                        "rule_category",
+                        "rule_characters",
+                        "ml_label",
+                        "ml_prob_issue",
+                        "ml_prob_non_issue",
+                        "final_label",
+                        "suspect_game_mismatch",
+                    ]
+                )
+
             writer.writerow(
                 [
-                    "timestamp",
-                    "game",
-                    "text",
-                    "rule_label",
-                    "rule_category",
-                    "rule_characters",
-                    "ml_label",
-                    "ml_prob_issue",
-                    "ml_prob_non_issue",
-                    "final_label",
-                    "suspect_game_mismatch",
+                    datetime.now().isoformat(timespec="seconds"),
+                    game,
+                    text.replace("\n", " ").strip(),
+                    rule_result.get("label"),
+                    rule_result.get("category"),
+                    ",".join(rule_result.get("characters", [])),
+                    ml_result.get("label"),
+                    f"{ml_result.get('prob_issue', 0.0):.4f}",
+                    f"{ml_result.get('prob_non_issue', 0.0):.4f}",
+                    final_label,
+                    "1" if suspect_game_mismatch else "0",
                 ]
             )
 
-        writer.writerow(
-            [
-                datetime.now().isoformat(timespec="seconds"),
-                game,
-                text.replace("\n", " ").strip(),
-                rule_result.get("label"),
-                rule_result.get("category"),
-                ",".join(rule_result.get("characters", [])),
-                ml_result.get("label"),
-                f"{ml_result.get('prob_issue', 0.0):.4f}",
-                f"{ml_result.get('prob_non_issue', 0.0):.4f}",
-                final_label,
-                "1" if suspect_game_mismatch else "0",
-            ]
-        )
+        logging.info(f"[PREDICTION] 로그 저장 완료 - {LOG_PATH}")
+
+    except Exception:
+        logging.exception("[PREDICTION] 로그 저장 중 오류 발생")
 
 
 # ---------------------------------------------------

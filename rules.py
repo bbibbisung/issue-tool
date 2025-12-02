@@ -37,6 +37,9 @@ rules.py
 - (버그/오류 폭넓은 패치) 전투/이펙트/모션/사운드/UI/판정/프레임 관련
   자주 등장하는 이슈 표현을 공통 키워드 세트로 설계하여
   FM/NK 버그/오류 RULES + 버그/오류 카테고리에 일괄 적용
+- (공통 패턴 확장 패치) 매칭/랭킹/점수/부정행위/밸런스/번역·텍스트 오류 등
+  자주 들어오는 이슈 유형을 공통 키워드 세트로 설계하여
+  FM/NK PROCESS_RULES + CATEGORY_RULES 전반에서 폭넓게 커버
 """
 
 from typing import List, Dict, Optional
@@ -266,7 +269,7 @@ SKILL_ERROR_KEYWORDS: List[str] = [
 ]
 
 # ---------------------------------------------------
-# 크래시/강종 공통 키워드 (신규/보강)
+# 크래시/강종 공통 키워드
 # ---------------------------------------------------
 
 CRASH_KEYWORDS: List[str] = [
@@ -288,7 +291,7 @@ CRASH_KEYWORDS: List[str] = [
 ]
 
 # ---------------------------------------------------
-# 전투/시각/모션/사운드/UI/판정 공통 키워드 세트 (폭넓게 커버)
+# 전투/시각/모션/사운드/UI/판정 공통 키워드 세트
 # ---------------------------------------------------
 
 # 이펙트/그래픽/화면 관련
@@ -446,6 +449,54 @@ GENERIC_FUNCTION_ERROR_KEYWORDS: List[str] = [
 ]
 
 # ---------------------------------------------------
+# 매칭/랭킹/점수/부정행위/밸런스/번역 공통 키워드 세트 (신규)
+# ---------------------------------------------------
+
+MATCHMAKING_KEYWORDS: List[str] = [
+    "매칭이 안 되", "매칭 안 되", "매칭이 안되", "매칭 안되",
+    "매칭이 안 잡혀", "매칭 안 잡혀", "매칭이 안잡혀", "매칭 안잡혀",
+    "매칭이 너무 오래", "매칭이 너무 길", "매칭이 안 잡힘", "매칭 안 잡힘",
+    "상대가 너무 세", "상대가 너무 약", "실력 매칭", "티어 매칭",
+    "티어가 안 맞", "실력이 안 맞", "언랭크랑 붙", "고티어랑 붙",
+]
+
+RANK_RECORD_KEYWORDS: List[str] = [
+    "랭킹이 안 올라", "랭킹 안 올라", "랭킹이 안 오름", "랭킹 안 오름",
+    "랭킹이 반영이 안", "랭킹 반영이 안", "랭킹 초기화", "랭킹이 초기화",
+    "점수가 안 올라", "점수 안 올라", "점수가 안 오름", "점수 안 오름",
+    "점수가 줄어", "점수 줄어", "점수가 사라졌", "점수 사라졌",
+    "기록이 안 남", "기록이 안남", "기록이 사라졌", "기록 사라졌",
+]
+
+CHEAT_HACK_KEYWORDS: List[str] = [
+    "핵 쓰는", "핵쓰는", "핵 유저", "핵유저", "핵쟁이",
+    "치트 쓰는", "치트쓰는", "치트 유저", "치트유저",
+    "오토플레이", "오토 플레이", "오토 돌리는", "오토 돌리",
+    "매크로 쓰는", "매크로유저", "매크로 유저",
+    "불법 프로그램", "불법프로그램",
+    "speedhack", "에임핵", "에임 핵",
+    "버그 악용", "버그악용", "익스플로잇", "exploit",
+]
+
+BALANCE_KEYWORDS: List[str] = [
+    "밸런스가 안 맞", "밸런스 안 맞", "밸런스 개판", "밸런스 조정",
+    "너프 좀", "너프해라", "너프 해야", "너프해 주세요", "너프가 필요",
+    "버프 좀", "버프해라", "버프 해야", "버프해 주세요", "버프가 필요",
+    "사기 캐릭", "사기캐릭", "op 캐릭", "op캐릭",
+    "쓰레기 캐릭", "쓰레기캐릭", "못 쓰는 캐릭", "못쓰는 캐릭",
+    "피해량이 너무 낮", "데미지가 너무 약", "데미지가 너무 세",
+    "한 방에 죽", "원콤", "원샷킬",
+]
+
+TRANSLATION_TEXT_KEYWORDS: List[str] = [
+    "오타가 있", "오타 있습니다", "오타있어요", "맞춤법이 틀렸",
+    "맞춤법 오류", "글자가 잘못", "잘못 표기", "잘못표기",
+    "번역이 이상", "번역 이상", "번역 오류", "번역오류",
+    "영어가 그대로", "일본어가 그대로", "중국어가 그대로",
+    "텍스트가 겹쳐", "글자가 겹쳐", "글자가 잘려", "글자 잘려",
+]
+
+# ---------------------------------------------------
 # 1) 게임별 캐릭터 리스트 (필요할 때 계속 추가 가능)
 # ---------------------------------------------------
 
@@ -478,8 +529,9 @@ NK_CHARACTERS: List[str] = [
 # priority 예시 (높을수록 더 중요한 이슈):
 #   100 : 접속/로그인 불가 같은 치명적인 장애
 #    95 : 버그/오류 (게임이 비정상 작동)
-#    90 : 불법 유출, 정치/극단 표현 등 S급 위험
-#    80 : 결제/보상/재화
+#    90 : 불법 유출, 정치/극단 표현, 핵·치트·부정행위 등 S급 위험
+#    85 : 매칭/랭킹/점수 기록 문제
+#    80 : 결제/보상/재화, 밸런스/캐릭터 성능
 #    70 : 커뮤니티 비매너/욕설 등
 
 PROCESS_RULES: List[Dict] = [
@@ -583,7 +635,60 @@ PROCESS_RULES: List[Dict] = [
         ],
     },
 
-    # ===== FM : 버그/오류 제보 (여러 번 정의되어 있어도 동작에는 문제 없음) =====
+    # ===== NK : 매칭/랭킹/점수 관련 이슈 =====
+    {
+        "game": "NK",
+        "process_name": "매칭/랭킹/점수",
+        "importance": "A",
+        "detail_name": "매칭 지연·불가 / 실력 불균형 / 점수·기록 이상",
+        "label": "issue",
+        "priority": 85,
+        "keywords": [
+            *MATCHMAKING_KEYWORDS,
+            *RANK_RECORD_KEYWORDS,
+        ],
+    },
+
+    # ===== NK : 부정행위(핵/치트/오토 등) 신고 =====
+    {
+        "game": "NK",
+        "process_name": "부정행위/핵·치트 신고",
+        "importance": "S",
+        "detail_name": "핵·치트·오토·매크로 등 부정행위 의심",
+        "label": "issue",
+        "priority": 90,
+        "keywords": [
+            *CHEAT_HACK_KEYWORDS,
+        ],
+    },
+
+    # ===== NK : 밸런스/캐릭터 성능 불만 =====
+    {
+        "game": "NK",
+        "process_name": "밸런스/캐릭터 성능",
+        "importance": "B",
+        "detail_name": "캐릭터·무기 밸런스/성능 관련 불만",
+        "label": "issue",
+        "priority": 80,
+        "keywords": [
+            *BALANCE_KEYWORDS,
+        ],
+    },
+
+    # ===== NK : 번역/텍스트 오류 =====
+    {
+        "game": "NK",
+        "process_name": "번역/텍스트 오류",
+        "importance": "B",
+        "detail_name": "오타·맞춤법·번역/텍스트 표기 오류",
+        "label": "issue",
+        "priority": 70,
+        "keywords": [
+            *TRANSLATION_TEXT_KEYWORDS,
+        ],
+    },
+
+    # ===== FM : 버그/오류 제보 =====
     {
         "game": "FM",
         "process_name": "버그/오류 제보",
@@ -677,29 +782,6 @@ PROCESS_RULES: List[Dict] = [
         ],
     },
 
-    # ===== NK : 접속/로그인 불가 =====
-    {
-        "game": "NK",
-        "process_name": "접속/로그인 불가",
-        "importance": "A",
-        "detail_name": "게임 접속 불가 / 서버 연결 실패",
-        "label": "issue",
-        "priority": 100,
-        "keywords": [
-            "접속 안 되", "접속 안 됨", "접속 안 된다고", "접속이 안 되",
-            "접속이 안 됨", "접속이 안 된다고",
-            "접속 안되", "접속이 안되", "접속이안되", "접속안되",
-            "게임 접속이 안", "게임이 안 들어가", "들어가면 튕김", "켜면 튕김",
-            "실행 안 되", "실행이 안 되", "실행 안되", "실행이 안되",
-            "실행이 안됨", "게임이 안 켜져", "게임이 안켜져",
-            "로딩에서 멈춰", "로딩 안됨", "로딩이 안되", "로딩이 안 됨",
-            "서버 접속", "서버 안되", "서버가 안", "서버 터짐",
-            "서버 에러", "서버 오류",
-            "네트워크 오류", "네트워크 불안정",
-            "연결 실패", "연결 오류", "연결이 안되", "연결이 안 되",
-        ],
-    },
-
     # ===== FM : 커뮤니티(게시글 및 댓글) =====
     {
         "game": "FM",
@@ -735,33 +817,79 @@ PROCESS_RULES: List[Dict] = [
         ],
     },
 
-    # ===== FM : 버그/오류 제보 (마지막 정의) =====
+    # ===== FM : 매칭/랭킹/점수 관련 이슈 =====
     {
         "game": "FM",
-        "process_name": "버그/오류 제보",
+        "process_name": "매칭/랭킹/점수",
         "importance": "A",
-        "detail_name": "게임 내 기능/전투 등 오류/버그",
+        "detail_name": "매칭 지연·불가 / 실력 불균형 / 점수·기록 이상",
         "label": "issue",
-        "priority": 95,
+        "priority": 85,
         "keywords": [
-            "버그", "오류", "에러", "에러가 나", "튕김", "튕겨", "렉", "지연",
-            "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
-            "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
-            "퀘스트가 안 깨져", "퀘스트가 진행이 안",
-            "맵에 끼어", "맵 끼임", "맵끼임",
-            "캐릭터가 끼어", "캐릭터가 껴서",
-            "벽에 끼어", "벽 끼임",
-            "프레임 드랍", "프레임드랍",
-            "프레임 떨어짐", "프레임이 떨어져", "프레임이 낮음",
-            "fps 떨어짐", "fps가 떨어짐", "fps가 낮음",
-            *SKILL_ERROR_KEYWORDS,
-            *CRASH_KEYWORDS,
-            *VISUAL_ERROR_KEYWORDS,
-            *MOTION_ERROR_KEYWORDS,
-            *AUDIO_ERROR_KEYWORDS,
-            *UI_ERROR_KEYWORDS,
-            *HITBOX_ERROR_KEYWORDS,
-            *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *MATCHMAKING_KEYWORDS,
+            *RANK_RECORD_KEYWORDS,
+        ],
+    },
+
+    # ===== FM : 부정행위(핵/치트/오토 등) 신고 =====
+    {
+        "game": "FM",
+        "process_name": "부정행위/핵·치트 신고",
+        "importance": "S",
+        "detail_name": "핵·치트·오토·매크로 등 부정행위 의심",
+        "label": "issue",
+        "priority": 90,
+        "keywords": [
+            *CHEAT_HACK_KEYWORDS,
+        ],
+    },
+
+    # ===== FM : 밸런스/캐릭터 성능 불만 =====
+    {
+        "game": "FM",
+        "process_name": "밸런스/캐릭터 성능",
+        "importance": "B",
+        "detail_name": "캐릭터·무기 밸런스/성능 관련 불만",
+        "label": "issue",
+        "priority": 80,
+        "keywords": [
+            *BALANCE_KEYWORDS,
+        ],
+    },
+
+    # ===== FM : 번역/텍스트 오류 =====
+    {
+        "game": "FM",
+        "process_name": "번역/텍스트 오류",
+        "importance": "B",
+        "detail_name": "오타·맞춤법·번역/텍스트 표기 오류",
+        "label": "issue",
+        "priority": 70,
+        "keywords": [
+            *TRANSLATION_TEXT_KEYWORDS,
+        ],
+    },
+
+    # ===== NK : 접속/로그인 불가 =====
+    {
+        "game": "NK",
+        "process_name": "접속/로그인 불가",
+        "importance": "A",
+        "detail_name": "게임 접속 불가 / 서버 연결 실패",
+        "label": "issue",
+        "priority": 100,
+        "keywords": [
+            "접속 안 되", "접속 안 됨", "접속 안 된다고", "접속이 안 되",
+            "접속이 안 됨", "접속이 안 된다고",
+            "접속 안되", "접속이 안되", "접속이안되", "접속안되",
+            "게임 접속이 안", "게임이 안 들어가", "들어가면 튕김", "켜면 튕김",
+            "실행 안 되", "실행이 안 되", "실행 안되", "실행이 안되",
+            "실행이 안됨", "게임이 안 켜져", "게임이 안켜져",
+            "로딩에서 멈춰", "로딩 안됨", "로딩이 안되", "로딩이 안 됨",
+            "서버 접속", "서버 안되", "서버가 안", "서버 터짐",
+            "서버 에러", "서버 오류",
+            "네트워크 오류", "네트워크 불안정",
+            "연결 실패", "연결 오류", "연결이 안되", "연결이 안 되",
         ],
     },
 
@@ -855,6 +983,35 @@ CATEGORY_RULES: List[Dict] = [
             "운영", "공지", "보상", "패치", "공지사항", "유저 차별",
             "운영 진짜", "운영 개판", "운영팀",
             "이벤트 보상", "이벤트 운영", "이벤트가 쓰레기",
+        ],
+    },
+    {
+        "name": "매칭/랭킹/점수",
+        "label": "issue",
+        "keywords": [
+            *MATCHMAKING_KEYWORDS,
+            *RANK_RECORD_KEYWORDS,
+        ],
+    },
+    {
+        "name": "부정행위/핵·치트",
+        "label": "issue",
+        "keywords": [
+            *CHEAT_HACK_KEYWORDS,
+        ],
+    },
+    {
+        "name": "밸런스/캐릭터 성능",
+        "label": "issue",
+        "keywords": [
+            *BALANCE_KEYWORDS,
+        ],
+    },
+    {
+        "name": "번역/텍스트 오류",
+        "label": "issue",
+        "keywords": [
+            *TRANSLATION_TEXT_KEYWORDS,
         ],
     },
     {
@@ -992,6 +1149,7 @@ def apply_process_rules(game: str, text: str) -> Optional[Dict]:
         if rule["game"] != game:
             continue
 
+        # 이벤트 단순 문의는 '보상/이벤트 관련 불만' 프로세스에서 제외
         if simple_event_q and (
             "보상/이벤트 관련 불만" in rule.get("detail_name", "")
             or "보상/재화 관련 불만" in rule.get("detail_name", "")
@@ -1065,6 +1223,7 @@ def rules_classify(game: str, text: str) -> Dict:
 
     characters = detect_characters(game, text)
 
+    # 1) 이벤트/패스 조기 종료 의심 이슈
     early_info = detect_event_ended_early_issue(text)
     if early_info:
         category_name = "이벤트/패스 기간 조기 종료 의심"
@@ -1078,6 +1237,7 @@ def rules_classify(game: str, text: str) -> Dict:
             "characters": characters,
         }
 
+    # 2) 이벤트/패스 기간 종료(정상 동작) 케이스
     expired_info = detect_event_expired_case(text)
     if expired_info:
         category_name = "이벤트/패스 기간 종료 (정상 동작)"
@@ -1091,6 +1251,7 @@ def rules_classify(game: str, text: str) -> Dict:
             "characters": characters,
         }
 
+    # 3) 프로세스 RULES 우선 적용
     proc_info = apply_process_rules(game, text)
 
     if proc_info:
@@ -1103,6 +1264,7 @@ def rules_classify(game: str, text: str) -> Dict:
         base_label = proc_info["label"]
         matched_keywords = proc_info["matched_keywords"]
     else:
+        # 4) 프로세스로 안 잡히면 일반 카테고리 RULES 적용
         cat_info = apply_category_rules(text)
         category_name = cat_info["name"]
         base_label = cat_info["label"]
