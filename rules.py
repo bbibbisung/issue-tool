@@ -32,6 +32,8 @@ rules.py
   감지하기 위한 detect_character_game_mismatch() 보조 함수 추가
 - (스킬 오류 보강 패치) "스킬 안 써짐/발동 안 됨" 등 스킬 사용 불가 표현을
   FM/NK 버그/오류 RULES + 버그/오류 카테고리에서 공통 인식하도록 보강
+- (크래시/강종 보강 패치) "강종", "유니티창" 등 게임 강제 종료 표현을
+  FM/NK 버그/오류 RULES + 버그/오류 카테고리에서 공통 인식하도록 CRASH_KEYWORDS 추가
 """
 
 from typing import List, Dict, Optional
@@ -234,7 +236,7 @@ def detect_event_expired_case(text: str) -> Optional[Dict]:
 
 
 # ---------------------------------------------------
-# 스킬 오류 공통 키워드 (신규)
+# 스킬 오류 공통 키워드
 # ---------------------------------------------------
 
 SKILL_ERROR_KEYWORDS: List[str] = [
@@ -255,6 +257,19 @@ SKILL_ERROR_KEYWORDS: List[str] = [
     "스킬 발동이 안",
     "스킬 사용 안",
     "스킬이 사용이 안",
+]
+
+# ---------------------------------------------------
+# 크래시/강종 공통 키워드 (신규)
+# ---------------------------------------------------
+
+CRASH_KEYWORDS: List[str] = [
+    "강종",
+    "강제종료",
+    "유니티창",
+    "유니티 창",
+    "유니티 에러",
+    "유니티 오류",
 ]
 
 
@@ -330,8 +345,8 @@ PROCESS_RULES: List[Dict] = [
         "priority": 90,
         "keywords": [
             "유출", "불법 공유", "불법 업로드", "불법 다운로드",
-            "불법으로 올림", "파일 올렸", "영상 올렸", "녹화본 올렸",
-            "스크린샷 공유 금지", "캡쳐본 공유", "캡처 공유",
+            "불법으로 올림", "파일 올렸", "영상 올렸",
+            "녹화본 올렸", "스크린샷 공유 금지", "캡쳐본 공유", "캡처 공유",
         ],
     },
     {
@@ -383,6 +398,7 @@ PROCESS_RULES: List[Dict] = [
             "캐릭터가 끼어", "캐릭터가 껴서",
             "벽에 끼어", "벽 끼임",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
 
@@ -414,6 +430,7 @@ PROCESS_RULES: List[Dict] = [
             "퀘스트가 안 깨져",
             "퀘스트가 진행이 안",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
     {
@@ -432,6 +449,7 @@ PROCESS_RULES: List[Dict] = [
             "캐릭터가 끼어", "캐릭터가 껴서",
             "벽에 끼어", "벽 끼임",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
     {
@@ -447,6 +465,7 @@ PROCESS_RULES: List[Dict] = [
             "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
             "퀘스트가 안 깨져", "퀘스트가 진행이 안",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
 
@@ -522,6 +541,7 @@ PROCESS_RULES: List[Dict] = [
             "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
             "퀘스트가 안 깨져", "퀘스트가 진행이 안",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
 
@@ -588,6 +608,7 @@ CATEGORY_RULES: List[Dict] = [
             "버그", "오류", "튕김", "렉", "지연", "멈춤", "프리징", "강제 종료",
             "이상 현상", "깨짐", "버그인지",
             *SKILL_ERROR_KEYWORDS,
+            *CRASH_KEYWORDS,
         ],
     },
     {

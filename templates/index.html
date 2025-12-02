@@ -53,7 +53,7 @@
         {% endif %}
 
         {% if feedback_applied %}
-          <span class="badge badge-feedback">나딘 피드백 적용</span>
+          <span class="badge badge-feedback">피드백 적용</span>
         {% endif %}
       </div>
       <p class="final-desc">
@@ -63,7 +63,6 @@
         {% endif %}
       </p>
 
-      <!-- (4순위 패치) 게임 선택 ↔ 캐릭터 검출 뒤틀림 경고 -->
       {% if game_warning %}
       <div
         class="game-warning"
@@ -74,7 +73,6 @@
       </div>
       {% endif %}
 
-      <!-- === 3순위 패치: ISSUE / NON ISSUE 배지에 업무 기준 설명 연결 === -->
       <div class="badge-guideline">
         {% if final_label == 'issue' %}
           <p>
@@ -90,7 +88,6 @@
         {% endif %}
       </div>
 
-      <!-- === FM / NK별 체크리스트 이미지(썸네일 + 클릭 시 확대) === -->
       <div class="checklist-section">
         <h3 class="checklist-title">업무 체크리스트</h3>
         <div class="checklist-body">
@@ -118,11 +115,9 @@
           </div>
         </div>
       </div>
-      <!-- === /업무 기준 연결 영역 끝 === -->
     </div>
 
     {% if diagnostics %}
-    <!-- 2-1. 결과 진단 (어디를 의심할지) -->
     <div class="card diag-card">
       <h3>2-1. 결과 진단 (어디를 의심할지)</h3>
       <div class="diag-header">
@@ -152,7 +147,6 @@
     {% endif %}
 
     <div class="grid">
-      <!-- RULES 기반 결과 -->
       <div class="card">
         <h3>RULES 기반 결과</h3>
         <ul class="result-list">
@@ -182,7 +176,6 @@
         {% endif %}
       </div>
 
-      <!-- 머신러닝 결과 -->
       <div class="card">
         <h3>머신러닝(ML) 결과</h3>
         <ul class="result-list">
@@ -192,16 +185,15 @@
         </ul>
       </div>
 
-      <!-- 입력한 원문 -->
       <div class="card full-width">
         <h3>입력한 원문</h3>
         <pre class="raw-text">{{ content }}</pre>
       </div>
     </div>
 
-    <!-- 3. 피드백 기록 (나딘 전용, 5순위 패치) -->
+    <!-- 3. 피드백 입력 -->
     <div class="card feedback-card">
-      <h3>3. 피드백 기록 (나딘 전용)</h3>
+      <h3>3. 피드백 입력</h3>
 
       {% if feedback_saved %}
         <p class="feedback-save-message">
