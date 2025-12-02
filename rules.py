@@ -40,6 +40,17 @@ rules.py
 - (공통 패턴 확장 패치) 매칭/랭킹/점수/부정행위/밸런스/번역·텍스트 오류 등
   자주 들어오는 이슈 유형을 공통 키워드 세트로 설계하여
   FM/NK PROCESS_RULES + CATEGORY_RULES 전반에서 폭넓게 커버
+- (인벤토리/아이템 처리 패치) 인벤토리 수량 미반영·이미 사용한 아이템 재사용 오류 등
+  아이템/표기/동기화 버그를 버그/오류 프로세스에서 안정적으로 포착하기 위한
+  INVENTORY_ITEM_BUG_KEYWORDS 추가
+- (접속 불가 휴리스틱 보정) 단순 "서버 점검 불만" 문장을 접속/로그인 불가로
+  오인하지 않도록 detect_connection_issue 로직 보정
+- (단순 환불 요청 패치) '지급 오류/미지급/중복결제' 없이
+  그냥 환불만 요청하는 케이스는 detect_simple_refund_request()로 선 처리하여
+  non_issue(단순 환불 요청)으로 분류
+- (운영/보상 불만 카테고리 보정) CATEGORY_RULES 중 '운영/보상 불만'의
+  키워드를 불만 표현 위주(개판/쓰레기/너무 길다 등)로 축소하여
+  단순 '운영/공지/보상/점검' 언급만으로 issue로 잡히지 않도록 조정
 """
 
 from typing import List, Dict, Optional
@@ -219,7 +230,8 @@ def detect_event_expired_case(text: str) -> Optional[Dict]:
     ]
     problem_keywords = [
         "안 들어왔", "안들어왔", "안 들어옴", "안들어옴",
-        "안 들어와", "안들어와", "안 받았", "못 받았",
+        "안 들어와", "안들어와",
+        "안 받았", "못 받았",
         "적용 안 됐", "적용이 안 됐", "적용이 안됨", "적용 안됨",
         "지급이 안 됐", "지급 안 됨", "지급 안됨", "지급이 안되",
         "적용이 안되", "적용 안되",
@@ -238,6 +250,59 @@ def detect_event_expired_case(text: str) -> Optional[Dict]:
         return None
 
     hits_all = list(dict.fromkeys(hits_expire + hits_event + hits_problem))
+    return {"matched_keywords": hits_all}
+
+
+def detect_simple_refund_request(text: str) -> Optional[Dict]:
+    """
+    '지급 문제/오류/중복결제' 없이, 그냥 환불만 요청하는 케이스를
+    non_issue(단순 환불 요청)으로 인식하기 위한 휴리스틱.
+
+    예: 
+    - "잘못 결제해서 환불해주세요"
+    - "실수로 눌렀는데 환불 부탁드립니다"
+    이런 문장은 issue가 아닌 별도 프로세스로 보내기 위함.
+
+    반대로,
+    - "지급이 안 됐으니 환불해 주세요"
+    - "중복 결제됐는데 환불해 주세요"
+    같은 문장은 실제 장애/결제 문제이므로 issue로 남긴다.
+    """
+    if not text:
+        return None
+
+    t = text
+    t_comp = normalize_text(text)
+
+    # 1) 환불/결제취소 계열 키워드
+    refund_keywords = [
+        "환불", "환불해", "환불 해", "환불좀", "환불 좀",
+        "환불 부탁", "환불 부탁드려", "환불 요청",
+        "결제 취소", "결제취소",
+    ]
+
+    # 2) 실제 결제/지급 문제를 나타내는 키워드
+    problem_keywords = [
+        "지급 안", "지급이 안", "지급 안 됨", "지급이 안 됨", "지급 안되", "지급이 안되",
+        "보상 안", "보상이 안",
+        "안 들어왔", "안들어왔", "안 들어옴", "안들어옴",
+        "안 들어와", "안들어와",
+        "상품이 안", "아이템이 안", "아이템이 안 들어",
+        "중복 결제", "중복결제", "두 번 결제", "두번 결제",
+        "결제 오류", "결제가 안되", "결제가 안 되", "결제가 안 됨",
+        "버그", "오류", "에러",
+    ]
+
+    hits_refund = find_keyword_hits(refund_keywords, t, t_comp)
+    if not hits_refund:
+        return None
+
+    hits_problem = find_keyword_hits(problem_keywords, t, t_comp)
+    # 결제/지급 문제 단어가 같이 있으면 '단순 환불 요청'이 아니라 실제 이슈로 본다.
+    if hits_problem:
+        return None
+
+    hits_all = list(dict.fromkeys(hits_refund))
     return {"matched_keywords": hits_all}
 
 
@@ -449,6 +514,49 @@ GENERIC_FUNCTION_ERROR_KEYWORDS: List[str] = [
 ]
 
 # ---------------------------------------------------
+# 인벤토리/아이템 처리·표기/동기화 관련 버그 키워드 (신규)
+# ---------------------------------------------------
+
+INVENTORY_ITEM_BUG_KEYWORDS: List[str] = [
+    # 인벤토리/소지품 언급 + 이상 동작
+    "인벤토리에서 아이템이 그대로 남아",
+    "인벤토리에 그대로 남아",
+    "인벤토리에 남아있",
+    "인벤토리 수량이 안 줄어",
+    "인벤토리 수량이 안 줄음",
+    "인벤토리 수량이 그대로",
+    "인벤토리 숫자가 그대로",
+    "소장품 재료를 사용했는데",
+    "소장품 재료 사용 후",
+    # 아이템 사용/소모 관련 표현
+    "아이템 사용은 됐는데 인벤토리에는 남아",
+    "아이템 사용은 됐는데 그대로 남아",
+    "아이템을 사용했는데 그대로 남아",
+    "아이템이 안 없어져",
+    "아이템이 안 사라져",
+    "아이템이 사라지지 않",
+    "수량이 안 줄어",
+    "개수가 안 줄어",
+    "갯수가 안 줄어",
+    # 이미 사용된 아이템 재사용 오류
+    "이미 사용이 된 아이템이라 재사용하면 에러",
+    "이미 사용한 아이템이라 재사용하면 에러",
+    "이미 사용한 아이템 재사용하면 에러",
+    "이미 사용된 아이템 재사용하면 오류",
+    # 화면 갱신/동기화 계열
+    "창을 나갔다가 다시 들어오니 정상적으로 표기",
+    "나갔다가 다시 들어오니 정상적으로 표기",
+    "나갔다 들어오니 정상적으로 표기",
+    "나갔다가 다시 들어오면 정상적으로 표기",
+    "표기가 이상하게 나옴",
+    "표기가 안 맞",
+    "표기가 안맞",
+    "표시가 안 맞",
+    "표시가 안맞",
+]
+
+
+# ---------------------------------------------------
 # 매칭/랭킹/점수/부정행위/밸런스/번역 공통 키워드 세트 (신규)
 # ---------------------------------------------------
 
@@ -632,6 +740,7 @@ PROCESS_RULES: List[Dict] = [
             *UI_ERROR_KEYWORDS,
             *HITBOX_ERROR_KEYWORDS,
             *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *INVENTORY_ITEM_BUG_KEYWORDS,
         ],
     },
 
@@ -697,24 +806,10 @@ PROCESS_RULES: List[Dict] = [
         "label": "issue",
         "priority": 95,
         "keywords": [
-            "버그",
-            "오류",
-            "에러",
-            "에러가 나",
-            "튕김",
-            "튕겨",
-            "렉",
-            "지연",
-            "멈춤",
-            "멈춰",
-            "프리징",
-            "강제 종료",
-            "캐릭터가 안 움직",
-            "스킬이 안 나가",
-            "피해가 안 들어가",
-            "데미지가 안 들어가",
-            "퀘스트가 안 깨져",
-            "퀘스트가 진행이 안",
+            "버그", "오류", "에러", "에러가 나", "튕김", "튕겨", "렉", "지연",
+            "멈춤", "멈춰", "프리징", "강제 종료", "캐릭터가 안 움직",
+            "스킬이 안 나가", "피해가 안 들어가", "데미지가 안 들어가",
+            "퀘스트가 안 깨져", "퀘스트가 진행이 안",
             "프레임 드랍", "프레임드랍",
             "프레임 떨어짐", "프레임이 떨어져", "프레임이 낮음",
             "fps 떨어짐", "fps가 떨어짐", "fps가 낮음",
@@ -726,6 +821,7 @@ PROCESS_RULES: List[Dict] = [
             *UI_ERROR_KEYWORDS,
             *HITBOX_ERROR_KEYWORDS,
             *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *INVENTORY_ITEM_BUG_KEYWORDS,
         ],
     },
     {
@@ -754,6 +850,7 @@ PROCESS_RULES: List[Dict] = [
             *UI_ERROR_KEYWORDS,
             *HITBOX_ERROR_KEYWORDS,
             *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *INVENTORY_ITEM_BUG_KEYWORDS,
         ],
     },
     {
@@ -779,6 +876,7 @@ PROCESS_RULES: List[Dict] = [
             *UI_ERROR_KEYWORDS,
             *HITBOX_ERROR_KEYWORDS,
             *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *INVENTORY_ITEM_BUG_KEYWORDS,
         ],
     },
 
@@ -966,6 +1064,7 @@ CATEGORY_RULES: List[Dict] = [
             *UI_ERROR_KEYWORDS,
             *HITBOX_ERROR_KEYWORDS,
             *GENERIC_FUNCTION_ERROR_KEYWORDS,
+            *INVENTORY_ITEM_BUG_KEYWORDS,
         ],
     },
     {
@@ -980,9 +1079,16 @@ CATEGORY_RULES: List[Dict] = [
         "name": "운영/보상 불만",
         "label": "issue",
         "keywords": [
-            "운영", "공지", "보상", "패치", "공지사항", "유저 차별",
-            "운영 진짜", "운영 개판", "운영팀",
-            "이벤트 보상", "이벤트 운영", "이벤트가 쓰레기",
+            # 중립 단어(운영/공지/보상/점검 등)는 제거하고
+            # 실제 불만/부정 표현 위주로만 구성
+            "유저 차별", "유저차별",
+            "운영 진짜", "운영 개판", "운영이 진짜", "운영이 개판",
+            "운영이 왜 이러", "운영 개같", "운영이 쓰레기",
+            "운영팀 뭐하", "운영팀 뭐 함", "운영팀이 뭐",
+            "이벤트가 쓰레기", "이벤트 쓰레기", "이벤트 개판", "이벤트 X같",
+            "이벤트 왜 이러",
+            "보상 개판", "보상 쓰레기", "보상 왜 이래", "보상 너무 짜",
+            "장시간 점검", "점검 너무 길", "점검이 너무 길",
         ],
     },
     {
@@ -1102,13 +1208,24 @@ def detect_character_game_mismatch(selected_game: str, text: str) -> Dict[str, o
 def detect_connection_issue(text: str) -> bool:
     """
     접속/로그인 불가 전용 휴리스틱.
+
+    - '서버 점검'에 대한 불만만 있는 경우(접속/로그인/실행/로딩/연결 불가 묘사 없음)는
+      접속/로그인 불가로 보지 않도록 사전 차단.
     """
     if not text:
         return False
 
     text_compact = normalize_text(text)
 
-    conn_words = ["접속", "로그인", "서버", "네트워크", "로딩", "연결"]
+    # 0) 순수 서버 점검 불만만 있는 경우는 접속 이슈로 취급하지 않음
+    if ("점검" in text or "점검중" in text_compact) and not any(
+        kw in text
+        for kw in ["접속", "로그인", "들어가", "실행", "로딩", "연결"]
+    ):
+        return False
+
+    # '서버' 단어 하나만으로는 접속 이슈로 보지 않도록 제거
+    conn_words = ["접속", "로그인", "네트워크", "로딩", "연결"]
     fail_words = [
         "안 되", "안되", "안됨", "안돼", "안 됨",
         "안 들어가", "못 들어가",
@@ -1251,7 +1368,21 @@ def rules_classify(game: str, text: str) -> Dict:
             "characters": characters,
         }
 
-    # 3) 프로세스 RULES 우선 적용
+    # 3) 단순 환불 요청(오결제/단순 변심 등) 선 분류
+    simple_refund = detect_simple_refund_request(text)
+    if simple_refund:
+        category_name = "단순 환불 요청"
+        if characters:
+            category_name = f"{category_name} + 캐릭터 관련"
+
+        return {
+            "label": "non_issue",
+            "category": category_name,
+            "matched_keywords": simple_refund["matched_keywords"],
+            "characters": characters,
+        }
+
+    # 4) 프로세스 RULES 우선 적용
     proc_info = apply_process_rules(game, text)
 
     if proc_info:
@@ -1264,7 +1395,7 @@ def rules_classify(game: str, text: str) -> Dict:
         base_label = proc_info["label"]
         matched_keywords = proc_info["matched_keywords"]
     else:
-        # 4) 프로세스로 안 잡히면 일반 카테고리 RULES 적용
+        # 5) 프로세스로 안 잡히면 일반 카테고리 RULES 적용
         cat_info = apply_category_rules(text)
         category_name = cat_info["name"]
         base_label = cat_info["label"]
