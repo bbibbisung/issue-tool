@@ -719,6 +719,23 @@ OPERATION_STRONG_COMPLAINT_KEYWORDS: List[str] = [
 
 
 # ---------------------------------------------------
+# 모호 케이스 판단용 키워드 (needs_review 보조용)
+# ---------------------------------------------------
+
+# 현재는 "기타" 카테고리에서만 사용할 예정이라, 실제 영향은 제한적임.
+AMBIGUOUS_GENERIC_KEYWORDS: List[str] = [
+    "문의",
+    "문의드립니다",
+    "문의 드립니다",
+    "질문입니다",
+    "건의",
+    "요청",
+    "제안",
+    "피드백",
+]
+
+
+# ---------------------------------------------------
 # 1) 게임별 캐릭터 리스트 (필요할 때 계속 추가 가능)
 # ---------------------------------------------------
 
@@ -1408,6 +1425,13 @@ def apply_category_rules(text: str) -> Dict:
 def rules_classify(game: str, text: str) -> Dict:
     """
     RULES 기반 최종 판단 함수.
+
+    반환 예시 공통 필드:
+    - label: "issue" / "non_issue"
+    - category: 카테고리/프로세스 이름
+    - matched_keywords: RULES에서 잡힌 키워드 리스트
+    - characters: 감지된 캐릭터명 리스트
+    - needs_review: 규칙만으로 애매해 사람 검토가 권장되는 경우 True
     """
     if not isinstance(text, str):
         text = str(text)
@@ -1426,6 +1450,8 @@ def rules_classify(game: str, text: str) -> Dict:
             "category": category_name,
             "matched_keywords": early_info["matched_keywords"],
             "characters": characters,
+            # 조기 종료 휴리스틱은 꽤 명확한 편이므로 기본 False 처리
+            "needs_review": False,
         }
 
     # 2) 이벤트/패스 기간 종료(정상 동작) 케이스
@@ -1440,6 +1466,8 @@ def rules_classify(game: str, text: str) -> Dict:
             "category": category_name,
             "matched_keywords": expired_info["matched_keywords"],
             "characters": characters,
+            # 정책상 정상 동작으로 보는 케이스이므로 기본 False 처리
+            "needs_review": False,
         }
 
     # 3) 단순 환불 요청(오결제/단순 변심 등) 선 분류
@@ -1454,6 +1482,8 @@ def rules_classify(game: str, text: str) -> Dict:
             "category": category_name,
             "matched_keywords": simple_refund["matched_keywords"],
             "characters": characters,
+            # "그냥 환불만 요청"인 케이스는 정책적으로 이미 별도 경로로 보내는 것이므로 False
+            "needs_review": False,
         }
 
     # 4) 프로세스 RULES 우선 적용
@@ -1478,9 +1508,34 @@ def rules_classify(game: str, text: str) -> Dict:
     if characters:
         category_name = f"{category_name} + 캐릭터 관련"
 
+    # ---------------------------------------------------
+    # (A-3) 검토 필요(ambiguous) 플래그 휴리스틱
+    # ---------------------------------------------------
+    needs_review = False
+
+    # 1) 대표 케이스: 규칙으로는 딱히 잡히지 않은 non_issue + "기타"
+    #    → "진짜 문제 없음"과 "규칙으로 못 잡은 애매한 티켓"이 섞여 있을 수 있음
+    if (
+        base_label == "non_issue"
+        and category_name.startswith("기타")
+        and not matched_keywords
+    ):
+        needs_review = True
+    else:
+        # 2) (확장 여지) 포괄적인 단어 1개만 잡힌 경우 + 카테고리가 "기타"인 경우
+        #    현재 룰셋에서는 거의 발생하지 않지만, 향후 룰 추가 시를 대비해 넣어 둠.
+        if (
+            base_label == "non_issue"
+            and category_name.startswith("기타")
+            and len(matched_keywords) == 1
+            and matched_keywords[0] in AMBIGUOUS_GENERIC_KEYWORDS
+        ):
+            needs_review = True
+
     return {
         "label": base_label,
         "category": category_name,
         "matched_keywords": matched_keywords,
         "characters": characters,
+        "needs_review": needs_review,
     }
